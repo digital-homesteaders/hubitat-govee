@@ -993,7 +993,10 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
         } else if (item.via == "iot" && live) {
             conn.publishCommand(id, topic, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
         } else if (item.api) {
-            if (item.via == "iot") logDebug "${cd.displayName}: no live connection, sending ${item.cmd} over the API"
+            if (item.via == "iot") {
+                String why = settings.apiKey && apiOnly(id) ? "ignores live commands" : "no live connection"
+                logDebug "${cd.displayName}: ${why}, sending ${item.cmd} over the API"
+            }
             sendApi(id, sku, item.api as Map)
         }
     }
