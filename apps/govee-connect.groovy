@@ -521,7 +521,8 @@ Map capabilitySummary(List capabilities) {
                 if (p.range) out.ct = [p.range.min ?: CT_RANGE[0], p.range.max ?: CT_RANGE[1]]
                 break
             case "workMode":
-                Map fields = (p.fields ?: []).collectEntries { [(it.fieldName): it] }
+                // Hubitat's sandbox refuses a property called "fields" (p.fields, p["fields"]), even on a Map.
+                Map fields = ((p.get("fields") ?: []) as List).collectEntries { [(it.fieldName): it] }
                 List modes = (fields.workMode?.options ?: []).collect { [it.name, it.value] }
                 out.modes = modes
                 // The speed mode is the one whose modeValue lists its own options.

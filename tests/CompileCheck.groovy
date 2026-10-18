@@ -47,6 +47,15 @@ files.each { File f ->
     }
 }
 
+// Hubitat's sandbox refuses reflection-like property names even on Maps
+// ("Subscript property 'fields' is not allowed"): read such keys with get().
+files.each { File f ->
+    check("no sandbox-blocked property names: ${f.name}") {
+        def m = f.text =~ /(?m)^(?!\s*(\/\/|\*)).*?(\.(fields|properties|methods|declaredFields|declaredMethods|metaClass)\b|\[\s*"(fields|properties|methods|class|metaClass)"\s*\])/
+        assert !m.find(), "found: ${m.group(0)?.trim()}"
+    }
+}
+
 boolean isPublic(Class c, String name) {
     c.methods.any { it.name == name && !Modifier.isPrivate(it.modifiers) }
 }
