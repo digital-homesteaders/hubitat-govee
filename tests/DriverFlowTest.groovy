@@ -141,6 +141,16 @@ check("Done creates the devices and the connection, which connects with the conv
     assert conn().driver.callsNamed("runIn").last()[2] == "afterConnect"
 }
 
+check("Done records each driver's version; the app page names any mismatch") {
+    assert lamp().getDataValue("driverVersion") == conn().getDataValue("driverVersion")
+    assert app.mainPage() != null
+    lamp().updateDataValue("driverVersion", "0.0.1")
+    assert app.driverVersionNote().contains("Aura Table Lamp (0.0.1)")
+    app.updated()
+    hub.settle()
+    assert app.driverVersionNote() == ""
+}
+
 check("connected: subscribe to the account topic and ask every device for its state") {
     int from = pubCount()
     conn().afterConnect()

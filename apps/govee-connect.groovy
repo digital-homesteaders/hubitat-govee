@@ -46,7 +46,7 @@ preferences {
 
 // Bump in every file on each change: drivers compare theirs with the app's and
 // log a warning when they differ (a file wasn't re-pasted).
-@Field static final String VERSION = "0.1.4"
+@Field static final String VERSION = "0.1.5"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -144,8 +144,16 @@ def mainPage() {
         }
         section("Logging") {
             input "logEnable", "bool", title: "Debug logging (turns itself off after 30 minutes)", defaultValue: false
+            paragraph "Govee Connect version ${VERSION}${driverVersionNote()}"
         }
     }
+}
+
+/** Drivers whose version differs from the app's (a file wasn't re-pasted). */
+private String driverVersionNote() {
+    List odd = getChildDevices().findAll { it.getDataValue("driverVersion") && it.getDataValue("driverVersion") != VERSION }
+        .collect { "${it.displayName} (${it.getDataValue('driverVersion')})" } + (state.oldDrivers ?: []).collect { "${it} (older)" }
+    return odd ? ". <b>Drivers from another version:</b> ${odd.join(', ')}. Re-paste them and press Done." : ""
 }
 
 private Map pickerOptions(Map found) {
@@ -223,6 +231,12 @@ void initialize() {
     unschedule()
     log.info "Govee Connect ${VERSION}"
     syncChildren()
+    // Drivers too old to answer are from an earlier version as well.
+    List old = []
+    getChildDevices().each { cd ->
+        try { cd.goveeHello() } catch (e) { old << cd.displayName }
+    }
+    state.oldDrivers = old
     if (logEnable) runIn(1800, "logsOff")
     if (!getGoveeDevices()) {
         getConnection()?.disconnectMqtt()
