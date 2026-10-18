@@ -152,6 +152,21 @@ check("Done records each driver's version; the app page names any mismatch") {
     assert app.driverVersionNote() == ""
 }
 
+check("each device records its driver's name; a light on fan code is named on the page and warned") {
+    assert lamp().getDataValue("driverName") == "Govee Light" && conn().getDataValue("driverName") == "Govee Cloud Connection"
+    assert app.wrongDrivers() == []
+    // As if the fan driver had been pasted into the light's Drivers Code entry.
+    lamp().updateDataValue("driverName", "Govee Fan")
+    assert app.wrongDrivers() == [[device: "Aura Table Lamp", runs: "Govee Fan", needs: "Govee Light"]]
+    assert app.driverVersionNote().contains("Aura Table Lamp runs Govee Fan but needs Govee Light")
+    lamp().updateDataValue("kind", "fan")
+    lamp().goveeHello()
+    assert lamp().driver.log.lines.any { it[1].contains("is a fan but runs the Govee Light driver code") }
+    lamp().updateDataValue("kind", "light")
+    lamp().goveeHello()
+    assert app.wrongDrivers() == [] && app.driverVersionNote() == ""
+}
+
 check("connected: subscribe to the account topic and ask every device for its state") {
     int from = pubCount()
     conn().afterConnect()

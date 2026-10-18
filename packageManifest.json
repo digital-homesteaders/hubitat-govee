@@ -1,12 +1,12 @@
 {
   "packageName": "Govee Connect",
   "author": "Digital Homesteaders",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "minimumHEVersion": "2.3.0",
   "dateReleased": "2026-10-18",
   "documentationLink": "https://github.com/GITHUB_OWNER/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Home screen tiles work; scene detection (learned per light); clearer labels; Set Color keeps brightness; HPM packaging.",
+  "releaseNotes": "Each device records its driver name; the app page and logs flag a device running the wrong driver code.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

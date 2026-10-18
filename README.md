@@ -70,7 +70,9 @@ Then go to **Apps → Add User App → Govee Connect**:
 3. Pick devices, then press **Done**.
 
 To update manually, re-paste **all four files**: every release stamps one version in each,
-and the app page warns when a file is from a different version.
+and the app page warns when a file is from a different version. Each device's **Data**
+shows the driver it runs (Driver Name, Driver Version). If a driver gets pasted into the
+wrong Drivers Code entry, the app page and logs name the devices affected.
 
 Hubitat keeps a sign-in token and the account's device certificate. It never keeps
 your password: that's dropped as soon as the sign-in finishes.

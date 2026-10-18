@@ -11,7 +11,9 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.4.0"
+@Field static final String DRIVER_VERSION = "0.4.1"
+// Must equal definition(name:); tests/PackageCheck.groovy checks it.
+@Field static final String DRIVER_NAME = "Govee Light"
 
 // How the app last reached the device: the LAN, Govee's live (MQTT) connection, or the Govee API.
 @Field static final Map TRANSPORTS = [lan: "local", iot: "cloud-live", api: "cloud-api"]
@@ -256,6 +258,11 @@ private void dropOldAttributes() {
 /** Warn when this driver and the app come from different versions (a file wasn't re-pasted). */
 private void checkVersion() {
     if (device.getDataValue("driverVersion") != DRIVER_VERSION) device.updateDataValue("driverVersion", DRIVER_VERSION)
+    // The device page's Data shows which driver code and version this device runs.
+    if (device.getDataValue("driverName") != DRIVER_NAME) device.updateDataValue("driverName", DRIVER_NAME)
+    // Code pasted into the wrong Drivers Code entry: say so rather than act oddly.
+    String kind = device.getDataValue("kind")
+    if (kind && kind != "light") log.warn "Govee: ${device.displayName} is a ${kind} but runs the ${DRIVER_NAME} driver code: re-paste each driver into its own Drivers Code entry (or set this device's Type to Govee Fan)"
     String appVersion = null
     try { appVersion = parent?.goveeVersion() } catch (e) { }
     if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: re-paste the app and all drivers from the same version"

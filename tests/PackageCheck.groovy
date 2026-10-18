@@ -51,6 +51,14 @@ check("manifest names and namespaces match each file's definition, and importUrl
     }
 }
 
+check("each driver's DRIVER_NAME is its definition name") {
+    files.findAll { it.parentFile.name == "drivers" }.each { File f ->
+        String def_ = (f.text =~ /definition\(\s*name:\s*"([^"]+)"/).with { it.find() ? it.group(1) : null }
+        String constant = (f.text =~ /static final String DRIVER_NAME = "([^"]+)"/).with { it.find() ? it.group(1) : null }
+        assert constant == def_, f.name
+    }
+}
+
 check("manifest ids are unique UUIDs and the licence exists") {
     List ids = entries*.id
     assert ids.every { it ==~ /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ } && ids.unique(false).size() == ids.size()

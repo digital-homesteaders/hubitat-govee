@@ -47,7 +47,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.4.0"
+@Field static final String VERSION = "0.4.1"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -201,7 +201,19 @@ def mainPage() {
 private String driverVersionNote() {
     List odd = getChildDevices().findAll { it.getDataValue("driverVersion") && it.getDataValue("driverVersion") != VERSION }
         .collect { "${it.displayName} (${it.getDataValue('driverVersion')})" } + (state.oldDrivers ?: []).collect { "${it} (older)" }
-    return odd ? ". <b>Drivers from another version:</b> ${odd.join(', ')}. Re-paste them and press Done." : ""
+    List wrong = wrongDrivers().collect { "${it.device} runs ${it.runs} but needs ${it.needs}" }
+    String note = odd ? ". <b>Drivers from another version:</b> ${odd.join(', ')}. Re-paste them and press Done." : ""
+    if (wrong) note += ". <b>Wrong driver code:</b> ${wrong.join('; ')}. Re-paste each driver into its own Drivers Code entry, then press Done."
+    return note
+}
+
+/** Devices whose driver code isn't the one their kind needs (a paste into the wrong Drivers Code entry). */
+List wrongDrivers() {
+    getChildDevices().collect { cd ->
+        String runs = cd.getDataValue("driverName")
+        String needs = cd.deviceNetworkId == connDni() ? "Govee Cloud Connection" : KIND_DRIVER[cd.getDataValue("kind")]
+        (runs && needs && runs != needs) ? [device: cd.displayName, runs: runs, needs: needs] : null
+    }.findAll { it }
 }
 
 private String lanSummary() {
@@ -290,6 +302,7 @@ void initialize() {
         try { cd.goveeHello() } catch (e) { old << cd.displayName }
     }
     state.oldDrivers = old
+    wrongDrivers().each { log.warn "Govee: ${it.device} runs the ${it.runs} driver code but needs ${it.needs}: re-paste each driver into its own Drivers Code entry" }
     if (logEnable) runIn(1800, "logsOff")
     if (!getGoveeDevices()) {
         getConnection()?.disconnectMqtt()
