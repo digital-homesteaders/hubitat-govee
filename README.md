@@ -120,4 +120,7 @@ Not yet tried on the hub:
       H6022 frames match AlgoClaw on all 91 scenes, H6072 on all 69.
 - [x] Scenes (0.2.0, 2026-10-17): 114 scenes + DIY on the H60B0; Set Effect, Next/Previous,
       Set Scene by name, and favorites as the effect list all work
+- [x] Home screen tiles (2026-10-17): lights show as RGBW tiles (they needed a starting
+      colorTemperature/hue/saturation). The Cloud Connection shows "Unknown device type"
+      by design; hide it from the home screen.
 - [ ] Reconnect after a hub reboot and after a network drop
