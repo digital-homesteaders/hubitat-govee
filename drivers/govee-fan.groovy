@@ -20,7 +20,6 @@ metadata {
         capability "Actuator"
         capability "Switch"
         capability "FanControl"
-        capability "SwitchLevel"
         capability "Refresh"
 
         attribute "speedLevel", "number"
@@ -63,7 +62,6 @@ def on() { sendGovee("on") }
 def off() { sendGovee("off") }
 def setSpeed(speed) { sendGovee("setSpeed", [speed]) }
 def cycleSpeed() { sendGovee("cycleSpeed") }
-def setLevel(level, duration = null) { sendGovee("setLevel", [level]) }
 def setSpeedLevel(level) { sendGovee("setSpeedLevel", [level as int]) }
 def setMode(mode) { sendGovee("setMode", [mode]) }
 def setOscillation(value) { sendGovee("setOscillation", [value]) }

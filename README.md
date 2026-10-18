@@ -40,7 +40,7 @@ your password: that's dropped as soon as the sign-in finishes.
 | Kind | Driver | Live (MQTT) | Needs API key |
 |---|---|---|---|
 | Lights, strips, lamps, bars | Govee Light | on/off, level, RGB, colour temperature, online | for devices that don't report live |
-| Fans (H710x, H711x) | Govee Fan | on/off | speed, mode, oscillation |
+| Fans (H710x, H711x) | Govee Fan | on/off | speed level 1-8, mode, oscillation |
 
 Not yet: scenes, per-segment colour, LAN control, Matter linking, sensors and other
 appliances. See [`../govee-research/DESIGN.md`](../govee-research/DESIGN.md) for the plan.
@@ -91,5 +91,6 @@ Not yet tried on the hub:
       the API took about 5 s to reach the lamp; after the second miss it switched to API-only.
 - [x] H6052 once it's API-only: well under a second per press (2026-10-17)
 - [ ] The API fallback after an unconfirmed command
-- [ ] Fan speed, mode and oscillation on the H7111 and H7101 (H7101 capabilities are unseen)
+- [x] H7101 fan (2026-10-17): on/off, speed levels 1-8, Auto/Sleep/Nature/FanSpeed, oscillation
+- [ ] H7111 fan
 - [ ] Reconnect after a hub reboot and after a network drop

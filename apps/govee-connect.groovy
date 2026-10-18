@@ -44,8 +44,9 @@ preferences {
 
 // ---------------------------------------------------------------- constants
 
-// Bump in every file on each change: drivers compare theirs with the app's and
-// log a warning when they differ (a file wasn't re-pasted).
+// The interface version: bump it in every file when the calls between the app
+// and its drivers change, so a driver left at an older one is reported (it
+// would fail quietly otherwise). Changes inside one file don't bump it.
 @Field static final String VERSION = "0.1.7"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
@@ -697,7 +698,6 @@ private List fanEvents(Map s, Map caps) {
         int idx = speeds.indexOf(s.modeValue)
         if (idx >= 0) {
             ev << [name: "speedLevel", value: idx + 1, descriptionText: "speed level is ${idx + 1} of ${speeds.size()}"]
-            ev << [name: "level", value: levelForStep(idx + 1, speeds.size()), unit: "%"]
             ev << [name: "speed", value: speedNameFor(idx + 1, speeds.size())]
         }
     } else if (s.workMode != null && s.onOff == 1) {

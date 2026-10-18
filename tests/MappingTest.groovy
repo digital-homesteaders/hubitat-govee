@@ -74,7 +74,7 @@ check("light events: offline") {
 check("fan events: speed step, named speed, level, mode, oscillation") {
     Map caps = capsFor("H7111")
     Map e = events("fan", [onOff: 1, workMode: 1, modeValue: 8, oscillation: 1], caps)
-    assert e.speed == "high" && e.speedLevel == 8 && e.level == 100 && e.maxSpeedLevel == 8
+    assert e.speed == "high" && e.speedLevel == 8 && !e.containsKey("level") && e.maxSpeedLevel == 8
     assert e.mode == "FanSpeed" && e.oscillation == "on"
     assert new JsonSlurper().parseText(e.supportedFanSpeeds) == ["low", "medium-low", "medium", "medium-high", "high", "off", "on"]
     assert events("fan", [onOff: 1, workMode: 1, modeValue: 1], caps).speed == "low"
