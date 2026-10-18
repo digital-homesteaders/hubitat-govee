@@ -296,6 +296,7 @@ class FakeDevice {
     String getDataValue(String k) { data[k] }
     void updateDataValue(String k, def v) { data[k] = v?.toString() }
     def currentValue(String attr, boolean skipCache = false) { current[attr] }
+    void deleteCurrentState(String attr) { current.remove(attr) }
 
     void applyEvent(Map e) {
         events << new LinkedHashMap(e)

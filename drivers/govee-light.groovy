@@ -13,6 +13,12 @@ import groovy.transform.Field
 
 @Field static final String DRIVER_VERSION = "0.3.0"
 
+// How the app last reached the device: the LAN, Govee's live (MQTT) connection, or the Govee API.
+@Field static final Map TRANSPORTS = [lan: "local", iot: "cloud-live", api: "cloud-api"]
+
+// goveeMode was Govee's raw mode number, which meant nothing in the UI (0.3.0 and earlier).
+@Field static final List OLD_ATTRIBUTES = ["goveeMode"]
+
 metadata {
     definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", importUrl: "") {
         capability "Actuator"
@@ -26,13 +32,12 @@ metadata {
         capability "Refresh"
 
         attribute "healthStatus", "enum", ["online", "offline"]
-        attribute "goveeMode", "string"
-        attribute "transport", "enum", ["lan", "iot", "api"]
+        attribute "transport", "enum", ["local", "cloud-live", "cloud-api"]
 
-        command "setScene", [[name: "Scene*", type: "STRING", description: "Scene name (part of it is enough) or its number from lightEffects"]]
+        command "setScene", [[name: "Scene name*", type: "STRING", description: "Part of the name is enough. Use this in rules: Set Effect numbers change when the favorites change"]]
     }
     preferences {
-        input "favoriteScenes", "enum", title: "Favorite scenes: Set Effect, lightEffects and Next/Previous use just these (none = all)",
+        input "favoriteScenes", "enum", title: "Favorite scenes: Set Effect numbers, lightEffects and Next/Previous use just these (none = all)",
             options: sceneOptions(), multiple: true, required: false
         input "txtEnable", "bool", title: "Description text logging", defaultValue: true
         input "logEnable", "bool", title: "Debug logging", defaultValue: false
@@ -48,6 +53,7 @@ def installed() {
 
 def updated() {
     checkVersion()
+    dropOldAttributes()
     publishEffects()
     applyState()
 }
@@ -72,7 +78,7 @@ def setEffect(effect) {
     int n = (effect ?: 0) as int
     List order = effectOrder()
     if (n < 1 || n > order.size()) {
-        log.warn "${device.displayName}: no effect ${effect} (there are ${order.size()}; see lightEffects)"
+        log.warn "${device.displayName}: no effect ${effect}: effects are numbered 1 to ${order.size()} (see lightEffects), or use Set Scene by name"
         return
     }
     applyScene(order[n - 1] as int)
@@ -124,6 +130,7 @@ def setScene(String scene) {
         setEffect(q as int)
         return
     }
+    // A number still works, as the effect number (kept for older rules).
     // The names as the favorites list shows them, so "Meditation (2)" works too.
     Map numbers = sceneNumbers()
     String exact = numbers.keySet().find { it.equalsIgnoreCase(q) }
@@ -186,7 +193,8 @@ void goveeUpdate(Map reported, String source) {
 
 /** Any sign of life from the device, even a message without state. */
 void goveeSeen(String source) {
-    if (device.currentValue("transport") != source) sendEvent(name: "transport", value: source)
+    String t = TRANSPORTS[source] ?: source
+    if (device.currentValue("transport") != t) sendEvent(name: "transport", value: t)
 }
 
 private void merge(Map changes) {
@@ -203,9 +211,10 @@ private void emit(Map e) {
     // Most of each report is unchanged: skip those values rather than send them.
     boolean same = device.currentValue(e.name)?.toString() == e.value?.toString()
     if (same && !e.isStateChange) return
-    if (txtEnable && e.name in ["switch", "level", "colorName", "colorTemperature", "healthStatus", "effectName"]) {
-        e.descriptionText = "${device.displayName} ${e.name} is ${e.value}${e.unit ?: ''}"
-        log.info e.descriptionText
+    // The app words the events worth logging ("brightness is 50%"); the rest stay quiet.
+    if (e.descriptionText) {
+        e.descriptionText = "${device.displayName} ${e.descriptionText}".toString()
+        if (txtEnable) log.info e.descriptionText
     }
     sendEvent(e)
 }
@@ -215,7 +224,15 @@ private void logDebug(String msg) {
 }
 
 /** Called by the app on Done: record this driver's version and compare it with the app's. */
-void goveeHello() { checkVersion() }
+void goveeHello() {
+    checkVersion()
+    dropOldAttributes()
+}
+
+/** Clear attributes earlier versions set and this one no longer has. */
+private void dropOldAttributes() {
+    OLD_ATTRIBUTES.each { if (device.currentValue(it) != null) device.deleteCurrentState(it) }
+}
 
 /** Warn when this driver and the app come from different versions (a file wasn't re-pasted). */
 private void checkVersion() {

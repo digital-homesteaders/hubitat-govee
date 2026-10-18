@@ -732,8 +732,8 @@ List goveeEvents(def cd, Map s, Map opts = [:]) {
     String kind = cd.getDataValue("kind")
     Map caps = capsOf(cd)
     List ev = []
-    if (s.onOff != null) ev << [name: "switch", value: s.onOff ? "on" : "off"]
-    if (s.online != null) ev << [name: "healthStatus", value: s.online ? "online" : "offline"]
+    if (s.onOff != null) ev << say([name: "switch", value: s.onOff ? "on" : "off"], "is")
+    if (s.online != null) ev << say([name: "healthStatus", value: s.online ? "online" : "offline"], "is")
     if (kind == "light") {
         ev.addAll(lightEvents(s, caps))
         ev.addAll(tileDefaults(cd, ev, caps))
@@ -744,23 +744,23 @@ List goveeEvents(def cd, Map s, Map opts = [:]) {
 
 private List lightEvents(Map s, Map caps) {
     List ev = []
-    if (s.brightness != null) ev << [name: "level", value: Math.max(0, Math.min(100, s.brightness as int)), unit: "%"]
+    // Hubitat calls brightness "level" (SwitchLevel); the logs say brightness.
+    if (s.brightness != null) ev << say([name: "level", value: Math.max(0, Math.min(100, s.brightness as int)), unit: "%"], "brightness is")
     int ct = (s.ct ?: 0) as int
     Map c = s.color
     if (ct > 0) {
         ev << [name: "colorMode", value: "CT"]
-        ev << [name: "colorTemperature", value: ct, unit: "K"]
-        ev << [name: "colorName", value: ctName(ct)]
+        ev << say([name: "colorTemperature", value: ct, unit: "K"], "color temperature is")
+        ev << say([name: "colorName", value: ctName(ct)], "color is")
     } else if (c && (c.r || c.g || c.b)) {
         Map hsv = rgbToHsv(c.r as int, c.g as int, c.b as int)
         ev << [name: "colorMode", value: "RGB"]
         ev << [name: "hue", value: hsv.hue]
         ev << [name: "saturation", value: hsv.saturation, unit: "%"]
         ev << [name: "color", value: rgbHex(c.r as int, c.g as int, c.b as int)]
-        ev << [name: "colorName", value: hueName(hsv.hue as int, hsv.saturation as int)]
+        ev << say([name: "colorName", value: hueName(hsv.hue as int, hsv.saturation as int)], "color is")
     }
-    if (s.mode != null) ev << [name: "goveeMode", value: s.mode.toString()]
-    if (s.containsKey("effect")) ev << [name: "effectName", value: s.effect ?: "none"]
+    if (s.containsKey("effect")) ev << say([name: "effectName", value: s.effect ?: "none"], "scene is")
     return ev
 }
 
@@ -782,31 +782,40 @@ private List tileDefaults(def cd, List ev, Map caps) {
 private List fanEvents(Map s, Map caps) {
     List ev = []
     List speeds = caps.speeds ?: []
+    List modes = caps.modes ?: []
+    // The speed attribute shows "auto" in Auto mode, so the speed list offers it too.
+    boolean hasAuto = modes.any { it[0].toString().equalsIgnoreCase("auto") }
     if (speeds) {
         ev << [name: "maxSpeedLevel", value: speeds.size()]
-        ev << [name: "supportedFanSpeeds", value: JsonOutput.toJson(speedNamesFor(speeds.size()) + ["off", "on"])]
+        ev << [name: "supportedFanSpeeds", value: JsonOutput.toJson(speedNamesFor(speeds.size()) + (hasAuto ? ["auto"] : []) + ["off", "on"])]
     }
-    List modes = caps.modes ?: []
     if (modes) ev << [name: "supportedModes", value: JsonOutput.toJson(modes.collect { it[0] })]
     if (s.workMode != null) {
         def m = modes.find { it[1] == s.workMode }
-        ev << [name: "mode", value: m ? m[0] : s.workMode.toString()]
+        ev << say([name: "mode", value: m ? m[0] : s.workMode.toString()], "mode is")
     }
     if (s.onOff == 0) {
-        ev << [name: "speed", value: "off"]
+        ev << say([name: "speed", value: "off"], "speed is")
     } else if (s.workMode != null && caps.speedMode != null && s.workMode == caps.speedMode && speeds) {
         int idx = speeds.indexOf(s.modeValue)
         if (idx >= 0) {
             ev << [name: "speedLevel", value: idx + 1, descriptionText: "speed level is ${idx + 1} of ${speeds.size()}"]
-            ev << [name: "speed", value: speedNameFor(idx + 1, speeds.size())]
+            ev << say([name: "speed", value: speedNameFor(idx + 1, speeds.size())], "speed is")
         }
     } else if (s.workMode != null && s.onOff == 1) {
         // Other modes run their own speed: Hubitat's closest names are auto and on.
         def m = modes.find { it[1] == s.workMode }
-        ev << [name: "speed", value: m && m[0].toString().toLowerCase() == "auto" ? "auto" : "on"]
+        ev << say([name: "speed", value: m && m[0].toString().toLowerCase() == "auto" ? "auto" : "on"], "speed is")
     }
-    if (s.oscillation != null) ev << [name: "oscillation", value: s.oscillation ? "on" : "off"]
+    if (s.oscillation != null) ev << say([name: "oscillation", value: s.oscillation ? "on" : "off"], "oscillation is")
     return ev
+}
+
+/** Add the log wording for an event: "<words> <value><unit>", e.g. "brightness is 50%". */
+private Map say(Map e, String words) {
+    String unit = e.unit == "K" ? " K" : (e.unit ?: "")
+    e.descriptionText = "${words} ${e.value}${unit}".toString()
+    return e
 }
 
 // ---------------------------------------------------------------- mapping: commands

@@ -177,9 +177,13 @@ check("a pushed report updates the light") {
     mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [brightness: 3, color: [b: 255, g: 8, r: 13], colorTemInKelvin: 0, connected: "true", mode: 4, onOff: 1, result: 1]])
     FakeDevice l = lamp()
     assert l.currentValue("switch") == "on" && l.currentValue("level") == 3 && l.currentValue("colorMode") == "RGB"
-    assert l.currentValue("hue") == 67 && l.currentValue("healthStatus") == "online" && l.currentValue("transport") == "iot"
+    assert l.currentValue("hue") == 67 && l.currentValue("healthStatus") == "online" && l.currentValue("transport") == "cloud-live"
     assert !l.getDataValue("lastIot"), "no device-data write per message"
     assert l.currentValue("colorTemperature") != null, "the RGBW tile needs a colour temperature even in RGB mode"
+    assert l.lastEvent("level").descriptionText == "${l.displayName} brightness is 3%"
+    l.current.goveeMode = "4"
+    l.goveeHello()
+    assert l.currentValue("goveeMode") == null, "the old raw mode attribute is cleared"
     mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [connected: "false", onOff: 0]]])
     assert l.currentValue("healthStatus") == "offline" && l.currentValue("switch") == "off"
 }
@@ -216,7 +220,7 @@ check("an unconfirmed MQTT command is resent over the API") {
     assert lamp().currentValue("colorMode") == "CT" && lamp().currentValue("colorTemperature") == 3000
     app.apiControlResp(resp(200, [code: 200, msg: "success"]), c[0][3])
     hub.settle()
-    assert lamp().currentValue("transport") == "api"
+    assert lamp().currentValue("transport") == "cloud-api"
 }
 
 check("several unconfirmed commands: only the newest value per capability is resent") {
@@ -266,7 +270,7 @@ check("after two misses in a row, the device's commands go straight to the API")
     assert bodyOf(app.callsNamed("asynchttpPost").drop(posts)[0]).payload.capability == [type: "devices.capabilities.on_off", instance: "powerSwitch", value: 1]
     // Status still arrives over MQTT.
     mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]])
-    assert lamp().currentValue("switch") == "on" && lamp().currentValue("transport") == "iot"
+    assert lamp().currentValue("switch") == "on" && lamp().currentValue("transport") == "cloud-live"
     hub.advance(6 * 3600 * 1000L)
     assert app.apiOnly(LAMP), "still API-only after 6 hours"
     hub.advance(7 * 24 * 3600 * 1000L)
@@ -434,7 +438,7 @@ check("LAN: commands go to the lamp directly and a devStatus read confirms them"
     assert hubActions(acts).last() == ["192.168.1.50:4003", [cmd: "devStatus", data: [:]]]
     conn().parse(lanEvent("192.168.1.50", [cmd: "devStatus", data: [onOff: 1, brightness: 40, color: [r: 0, g: 0, b: 0], colorTemInKelvin: 3000]]))
     hub.settle()
-    assert lamp().currentValue("transport") == "lan" && lamp().currentValue("colorTemperature") == 3000
+    assert lamp().currentValue("transport") == "local" && lamp().currentValue("colorTemperature") == 3000
     int posts = app.callsNamed("asynchttpPost").size()
     hub.advance(7000)
     conn().checkPending()

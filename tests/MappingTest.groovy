@@ -68,6 +68,14 @@ check("light events: colour temperature wins over a stale colour") {
     assert e.hue == 0 && e.saturation == 0
 }
 
+check("light events: log wording, no raw Govee mode") {
+    List ev = app.goveeEvents(dev("light", [:]), [onOff: 1, brightness: 50, ct: 3000, mode: 4, effect: "Forest"])
+    Map words = ev.collectEntries { [(it.name): it.descriptionText] }
+    assert words.switch == "is on" && words.level == "brightness is 50%"
+    assert words.colorTemperature == "color temperature is 3000 K" && words.effectName == "scene is Forest"
+    assert !ev.find { it.name == "goveeMode" }
+}
+
 check("light events: offline") {
     assert events("light", [online: false]).healthStatus == "offline"
 }
@@ -77,7 +85,7 @@ check("fan events: speed step, named speed, level, mode, oscillation") {
     Map e = events("fan", [onOff: 1, workMode: 1, modeValue: 8, oscillation: 1], caps)
     assert e.speed == "high" && e.speedLevel == 8 && !e.containsKey("level") && e.maxSpeedLevel == 8
     assert e.mode == "FanSpeed" && e.oscillation == "on"
-    assert new JsonSlurper().parseText(e.supportedFanSpeeds) == ["low", "medium-low", "medium", "medium-high", "high", "off", "on"]
+    assert new JsonSlurper().parseText(e.supportedFanSpeeds) == ["low", "medium-low", "medium", "medium-high", "high", "auto", "off", "on"]
     assert events("fan", [onOff: 1, workMode: 1, modeValue: 1], caps).speed == "low"
     assert events("fan", [onOff: 1, workMode: 1, modeValue: 4], caps).speed == "medium"
     assert events("fan", [onOff: 0, workMode: 1, modeValue: 4], caps).speed == "off"

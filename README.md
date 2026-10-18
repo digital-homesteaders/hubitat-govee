@@ -16,7 +16,9 @@ for an hour. Turn this off under "Local control" on the app page.
 
 **Scenes:** with the API key, each light's Govee scenes and DIY scenes appear as
 Hubitat light effects. `lightEffects` lists them by number, and **Set Effect**, next and
-previous switch between them. On a light controlled over the LAN, Govee's own scenes run
+previous switch between them. **Set Scene** takes the scene's name (part of it is
+enough). Use names in rules and dashboards: effect numbers follow the favorites list, so
+they change when the favorites do. On a light controlled over the LAN, Govee's own scenes run
 **locally**: the app fetches the model's scene library from Govee once (no sign-in
 needed) and sends the scene to the light as ptReal frames. DIY scenes, and scenes missing
 from the library, go through the API. A light doesn't report which scene is running, so
@@ -57,8 +59,13 @@ your password: that's dropped as soon as the sign-in finishes.
 
 | Kind | Driver | Live (MQTT) | Needs API key |
 |---|---|---|---|
-| Lights, strips, lamps, bars | Govee Light | on/off, level, RGB, colour temperature, online (over LAN when available) | scenes; devices that don't report live |
+| Lights, strips, lamps, bars | Govee Light | on/off, brightness, RGB, colour temperature, online (over LAN when available) | scenes; devices that don't report live |
 | Fans (H710x, H711x) | Govee Fan | on/off | speed level 1-8, mode, oscillation |
+
+In Hubitat, brightness is the `level` attribute and the **Set Level** command (the
+standard names that dashboards, rules and voice assistants use); the logs say
+"brightness". The `transport` attribute shows how the device was last reached: `local`
+(LAN), `cloud-live` (Govee's live MQTT connection) or `cloud-api` (the Govee API).
 
 Not yet: per-segment colour, Matter linking, sensors and other
 appliances. See [`../govee-research/DESIGN.md`](../govee-research/DESIGN.md) for the plan.
@@ -123,4 +130,6 @@ Not yet tried on the hub:
 - [x] Home screen tiles (2026-10-17): lights show as RGBW tiles (they needed a starting
       colorTemperature/hue/saturation). The Cloud Connection shows "Unknown device type"
       by design; hide it from the home screen.
+- [ ] UI wording (0.3.0+): brightness in the logs, transport `local`/`cloud-live`/`cloud-api`,
+      `goveeMode` gone after Done in the app, `auto` in the fan's supported speeds
 - [ ] Reconnect after a hub reboot and after a network drop

@@ -11,6 +11,9 @@ import groovy.transform.Field
 
 @Field static final String DRIVER_VERSION = "0.3.0"
 
+// How the app last reached the device: the LAN, Govee's live (MQTT) connection, or the Govee API.
+@Field static final Map TRANSPORTS = [lan: "local", iot: "cloud-live", api: "cloud-api"]
+
 // Govee tower fans have 8 speed steps; the dropdowns can't vary per device.
 @Field static final List SPEED_LEVELS = ["1", "2", "3", "4", "5", "6", "7", "8"]
 @Field static final List FAN_MODES = ["FanSpeed", "Auto", "Sleep", "Nature", "Storm", "Custom"]
@@ -28,7 +31,7 @@ metadata {
         attribute "supportedModes", "JSON_OBJECT"
         attribute "oscillation", "enum", ["on", "off"]
         attribute "healthStatus", "enum", ["online", "offline"]
-        attribute "transport", "enum", ["lan", "iot", "api"]
+        attribute "transport", "enum", ["local", "cloud-live", "cloud-api"]
 
         command "setSpeedLevel", [[name: "Speed level*", type: "ENUM", description: "Fan step as in the Govee app (a fan with fewer steps uses its top one)", constraints: SPEED_LEVELS]]
         command "setMode", [[name: "Mode*", type: "ENUM", description: "Govee fan mode (supportedModes lists this fan's)", constraints: FAN_MODES]]
@@ -82,7 +85,8 @@ void goveeUpdate(Map reported, String source) {
 void goveeScenes(String kind, List list) {}
 
 void goveeSeen(String source) {
-    if (device.currentValue("transport") != source) sendEvent(name: "transport", value: source)
+    String t = TRANSPORTS[source] ?: source
+    if (device.currentValue("transport") != t) sendEvent(name: "transport", value: t)
 }
 
 private void merge(Map changes) {
@@ -98,9 +102,10 @@ private void applyState() {
 private void emit(Map e) {
     boolean same = device.currentValue(e.name)?.toString() == e.value?.toString()
     if (same && !e.isStateChange) return
-    if (txtEnable && e.name in ["switch", "speed", "speedLevel", "mode", "oscillation", "healthStatus"]) {
-        e.descriptionText = "${device.displayName} ${e.descriptionText ?: e.name + ' is ' + e.value + (e.unit ?: '')}"
-        log.info e.descriptionText
+    // The app words the events worth logging ("speed is medium"); the rest stay quiet.
+    if (e.descriptionText) {
+        e.descriptionText = "${device.displayName} ${e.descriptionText}".toString()
+        if (txtEnable) log.info e.descriptionText
     }
     sendEvent(e)
 }
