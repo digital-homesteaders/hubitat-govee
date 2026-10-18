@@ -28,8 +28,12 @@ metadata {
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "goveeMode", "string"
         attribute "transport", "enum", ["lan", "iot", "api"]
+
+        command "setScene", [[name: "Scene*", type: "STRING", description: "Scene name (part of it is enough) or its number from lightEffects"]]
     }
     preferences {
+        input "favoriteScenes", "enum", title: "Favorite scenes (Next/Previous Effect cycle through these; none = all)",
+            options: sceneOptions(), multiple: true, required: false
         input "txtEnable", "bool", title: "Description text logging", defaultValue: true
         input "logEnable", "bool", title: "Debug logging", defaultValue: false
     }
@@ -76,11 +80,41 @@ def setEffect(effect) {
 def setNextEffect() { stepEffect(1) }
 def setPreviousEffect() { stepEffect(-1) }
 
+/** Step through the favorite scenes (or all of them), wrapping around. */
 private void stepEffect(int delta) {
     int size = (state.scenes ?: []).size()
     if (!size) return
+    List order = ((settings.favoriteScenes ?: []) as List).collect { it as int }.findAll { it >= 1 && it <= size }.sort()
+    if (!order) order = (1..size).toList()
     int cur = (state.effectIndex ?: 0) as int
-    setEffect(((cur - 1 + delta) % size + size) % size + 1)
+    int pos = order.indexOf(cur)
+    // Not on a favorite yet: Next starts at the first, Previous at the last.
+    int next = pos < 0 ? (delta > 0 ? 0 : order.size() - 1) : ((pos + delta) % order.size() + order.size()) % order.size()
+    setEffect(order[next])
+}
+
+/** A scene by name (exact, else the first containing it, ignoring case) or by number. */
+def setScene(String scene) {
+    String q = (scene ?: "").trim()
+    if (q ==~ /\d+/) {
+        setEffect(q as int)
+        return
+    }
+    List names = (state.scenes ?: []).collect { (it[0] as String).toLowerCase() }
+    int i = names.indexOf(q.toLowerCase())
+    if (i < 0) i = names.findIndexOf { it.contains(q.toLowerCase()) }
+    if (i < 0) {
+        log.warn "${device.displayName}: no scene called '${scene}' (see lightEffects)"
+        return
+    }
+    setEffect(i + 1)
+}
+
+/** Choices for the favorite scenes preference: number -> name. */
+Map sceneOptions() {
+    Map out = [:]
+    (state.scenes ?: []).eachWithIndex { e, i -> out[(i + 1).toString()] = "${i + 1}. ${e[0]}".toString() }
+    return out
 }
 
 /** The app hands over a scene list ("scene" or "diy"); both lists make up the numbered effects. */

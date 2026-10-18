@@ -356,6 +356,28 @@ check("scenes: fetched per light, numbered as light effects, set over the API") 
     lamp().setNextEffect()
     hub.settle()
     assert lamp().currentValue("effectName") == "Sunrise", "wraps around"
+    lamp().setScene("ocean")
+    hub.settle()
+    assert lamp().currentValue("effectName") == "Ocean"
+    lamp().setScene("min")
+    hub.settle()
+    assert lamp().currentValue("effectName") == "DIY: Mine", "part of a name is enough"
+    lamp().setScene("1")
+    hub.settle()
+    assert lamp().currentValue("effectName") == "Sunrise"
+    assert lamp().driver.sceneOptions() == ["1": "1. Sunrise", "2": "2. Ocean", "3": "3. DIY: Mine"]
+    // Favorites: Next and Previous cycle through these only.
+    lamp().driver.settings.favoriteScenes = ["3", "1"]
+    lamp().setNextEffect()
+    hub.settle()
+    assert lamp().currentValue("effectName") == "DIY: Mine"
+    lamp().setNextEffect()
+    hub.settle()
+    assert lamp().currentValue("effectName") == "Sunrise"
+    lamp().setPreviousEffect()
+    hub.settle()
+    assert lamp().currentValue("effectName") == "DIY: Mine"
+    lamp().driver.settings.remove("favoriteScenes")
     lamp().setColorTemperature(4000)
     hub.settle()
     assert lamp().currentValue("effectName") == "none"
