@@ -265,8 +265,17 @@ check("after two misses in a row, the device's commands go straight to the API")
     // Status still arrives over MQTT.
     mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]])
     assert lamp().currentValue("switch") == "on" && lamp().currentValue("transport") == "iot"
-    hub.advance(6 * 3600 * 1000L + 1000)
-    assert !app.apiOnly(LAMP), "MQTT is tried again after 6 hours"
+    hub.advance(6 * 3600 * 1000L)
+    assert app.apiOnly(LAMP), "still API-only after 6 hours"
+    hub.advance(7 * 24 * 3600 * 1000L)
+    assert !app.apiOnly(LAMP), "MQTT is tried again after a week"
+    // One miss on the retry sends it straight back to the API.
+    lamp().off()
+    hub.settle()
+    hub.advance(7000)
+    conn().checkPending()
+    hub.settle()
+    assert app.apiOnly(LAMP)
 }
 
 check("a matching report confirms and clears the misses; a dragged slider confirms on its last value") {

@@ -13,7 +13,7 @@ An optional **Govee API key** adds the official Platform API, for:
 - a fallback: a live command that the device doesn't carry out within about 6 s (the
   device's report must show the new value) is sent again over the API. Some firmware
   reports over the live connection but ignores commands there (seen: H6052). After two
-  misses in a row, that device's commands go straight to the API for 6 hours.
+  misses in a row, that device's commands go straight to the API (retried over MQTT weekly).
 
 ## Install
 
@@ -86,10 +86,10 @@ Not yet tried on the hub:
 - [ ] Discovery without an API key
 - [ ] Commands over MQTT (turn, brightness, colorwc RGB and CT) on each light.
       H6022: `turn` works. H6052: reports over MQTT but ignores `turn`, so after two
-      misses its commands go over the API (automatic; retried over MQTT after 6 h).
+      misses its commands go over the API (automatic; retried over MQTT weekly).
       Confirmed on the hub 2026-10-17 (0.1.5): first miss failed fast at 3.2 s, then
       the API took about 5 s to reach the lamp; after the second miss it switched to API-only.
-- [ ] H6052 delay once it's API-only (Govee's cloud; the Govee app may be using Bluetooth)
+- [x] H6052 once it's API-only: well under a second per press (2026-10-17)
 - [ ] The API fallback after an unconfirmed command
 - [ ] Fan speed, mode and oscillation on the H7111 and H7101 (H7101 capabilities are unseen)
 - [ ] Reconnect after a hub reboot and after a network drop

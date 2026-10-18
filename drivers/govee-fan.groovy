@@ -9,7 +9,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.1.5"
+@Field static final String DRIVER_VERSION = "0.1.6"
 
 metadata {
     definition(name: "Govee Fan", namespace: "govee", author: "Digital Homesteaders", importUrl: "") {

@@ -46,7 +46,7 @@ preferences {
 
 // Bump in every file on each change: drivers compare theirs with the app's and
 // log a warning when they differ (a file wasn't re-pasted).
-@Field static final String VERSION = "0.1.5"
+@Field static final String VERSION = "0.1.6"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -68,7 +68,9 @@ preferences {
 // instead (some firmware reports over MQTT but ignores commands there), and
 // how long before MQTT is tried again for it.
 @Field static final int IOT_MISSES_TO_API = 2
-@Field static final long IOT_RETRY_MS = 6 * 3600 * 1000L
+// A device that ignored MQTT commands is retried there weekly (one slow
+// press; a single miss after that sends it straight back to the API).
+@Field static final long IOT_RETRY_MS = 7 * 24 * 3600 * 1000L
 @Field static final Map POLL_CHOICES = ["2": "2 minutes", "5": "5 minutes", "10": "10 minutes", "15": "15 minutes", "30": "30 minutes"]
 
 // Govee device types (Platform API `type`) and the kind of child each becomes.
