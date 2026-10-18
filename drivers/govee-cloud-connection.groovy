@@ -39,6 +39,7 @@ metadata {
     }
 }
 
+@Field static final String DRIVER_VERSION = "0.1.4"
 @Field static final int CONNECT_WAIT_S = 5
 @Field static final long CONFIRM_QUERY_MS = 1500
 @Field static final int CONFIRM_TIMEOUT_S = 6
@@ -90,11 +91,13 @@ def installed() {
 }
 
 def updated() {
+    checkVersion()
     if (state.wanted) scheduleQueries()
 }
 
 /** Runs at hub start-up (Initialize capability). */
 def initialize() {
+    checkVersion()
     state.failures = 0
     connectMqtt()
 }
@@ -115,6 +118,7 @@ def disconnectMqtt() {
 // ---------------------------------------------------------------- connecting
 
 def connectMqtt() {
+    checkVersion()
     Map creds = parent?.iotCredentials()
     if (!creds) {
         logDebug "No certificate yet; waiting for the app to sign in"
@@ -371,4 +375,11 @@ private String pem(String label, byte[] der) {
 
 private void logDebug(String msg) {
     if (logEnable) log.debug "Govee connection: ${msg}"
+}
+
+/** Warn when this driver and the app come from different versions (a file wasn't re-pasted). */
+private void checkVersion() {
+    String appVersion = null
+    try { appVersion = parent?.goveeVersion() } catch (e) { }
+    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: re-paste the app and all drivers from the same version"
 }

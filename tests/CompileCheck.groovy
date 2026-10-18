@@ -56,6 +56,11 @@ files.each { File f ->
     }
 }
 
+check("the app and every driver carry the same version") {
+    Set versions = files.collect { f -> (f.text =~ /static final String (?:DRIVER_)?VERSION = "([^"]+)"/).with { it.find() ? it.group(1) : "none" } } as Set
+    assert versions.size() == 1 && !("none" in versions), "versions: ${versions}"
+}
+
 boolean isPublic(Class c, String name) {
     c.methods.any { it.name == name && !Modifier.isPrivate(it.modifiers) }
 }

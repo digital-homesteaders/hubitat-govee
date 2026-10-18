@@ -44,6 +44,9 @@ preferences {
 
 // ---------------------------------------------------------------- constants
 
+// Bump in every file on each change: drivers compare theirs with the app's and
+// log a warning when they differ (a file wasn't re-pasted).
+@Field static final String VERSION = "0.1.4"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -213,8 +216,12 @@ def uninstalled() {
     getChildDevices().each { deleteChildDevice(it.deviceNetworkId) }
 }
 
+/** The app's code version; drivers check theirs against it. */
+String goveeVersion() { VERSION }
+
 void initialize() {
     unschedule()
+    log.info "Govee Connect ${VERSION}"
     syncChildren()
     if (logEnable) runIn(1800, "logsOff")
     if (!getGoveeDevices()) {

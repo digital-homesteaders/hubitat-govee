@@ -7,6 +7,10 @@
  * Copyright (c) 2026 Digital Homesteaders. MIT License.
  */
 
+import groovy.transform.Field
+
+@Field static final String DRIVER_VERSION = "0.1.4"
+
 metadata {
     definition(name: "Govee Fan", namespace: "govee", author: "Digital Homesteaders", importUrl: "") {
         capability "Actuator"
@@ -36,10 +40,12 @@ metadata {
 // ---------------------------------------------------------------- lifecycle
 
 def installed() {
+    checkVersion()
     refresh()
 }
 
 def updated() {
+    checkVersion()
     applyState()
 }
 
@@ -96,4 +102,11 @@ private void emit(Map e) {
 
 private void logDebug(String msg) {
     if (logEnable) log.debug "${device.displayName}: ${msg}"
+}
+
+/** Warn when this driver and the app come from different versions (a file wasn't re-pasted). */
+private void checkVersion() {
+    String appVersion = null
+    try { appVersion = parent?.goveeVersion() } catch (e) { }
+    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: re-paste the app and all drivers from the same version"
 }
