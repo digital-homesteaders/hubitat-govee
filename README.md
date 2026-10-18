@@ -22,7 +22,12 @@ they change when the favorites do. On a light controlled over the LAN, Govee's o
 **locally**: the app fetches the model's scene library from Govee once (no sign-in
 needed) and sends the scene to the light as ptReal frames. DIY scenes, and scenes missing
 from the library, go through the API. A light doesn't report which scene is running, so
-LAN scenes can't be confirmed the way power and colour are. Models encode scene data
+LAN scenes can't be confirmed the way power and colour are. It does report a mode number
+over the live connection, which differs by model (H60B0: 5 = colour or white, 8 = scene;
+H6022: 1 for white). The app learns each light's numbers from the reports that follow
+Hubitat's own colour and scene commands. After that, a scene started anywhere (the Govee
+app, the lamp's button) shows as `colorMode` EFFECTS, with `effectName` "unknown" if
+Hubitat didn't start it, and going back to a plain colour sets `effectName` to "none". Models encode scene data
 differently, so a scene goes over the LAN only when its model's encoding is known
 (per-model rules from AlgoClaw, checked against real data); others, such as most H60B0
 scenes, use the API.
@@ -132,4 +137,6 @@ Not yet tried on the hub:
       by design; hide it from the home screen.
 - [ ] UI wording (0.3.0+): brightness in the logs, transport `local`/`cloud-live`/`cloud-api`,
       `goveeMode` gone after Done in the app, `auto` in the fan's supported speeds
+- [ ] Scene detection by mode (learned per light): H60B0 confirmed 5 = plain, 8 = scene
+      (2026-10-18, including a scene started from the Govee app); other models untested
 - [ ] Reconnect after a hub reboot and after a network drop

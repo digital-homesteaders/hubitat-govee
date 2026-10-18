@@ -655,6 +655,27 @@ check("reconnect backs off and the watchdog reconnects") {
     assert conn().currentValue("connection") == "connected" && conn().driver.state.failures == 0
 }
 
+check("a light's mode number: learned after a colour command, then shows scenes started elsewhere") {
+    lamp().setColorTemperature(2700)
+    hub.settle()
+    assert app.callsNamed("runIn").last()[2] == "modeQuery"
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [mode: 5, onOff: 1]])
+    assert !(app.state.lightModes ?: [:])[LAMP], "too soon after the command to learn from"
+    hub.advance(3000)
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [colorTemInKelvin: 2700, mode: 5, onOff: 1]])
+    assert app.state.lightModes[LAMP].plain == ["5"]
+    // A scene's number, learned the same way; a scene started in the Govee app then shows.
+    app.learnMode(LAMP, "scene", "8")
+    hub.advance(60000)
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [colorTemInKelvin: 2700, mode: 8, onOff: 1]])
+    assert lamp().currentValue("colorMode") == "EFFECTS" && lamp().currentValue("effectName") == "unknown"
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [colorTemInKelvin: 2700, mode: 5, onOff: 1]])
+    assert lamp().currentValue("colorMode") == "CT" && lamp().currentValue("effectName") == "none"
+    // A number seen as both kinds is ambiguous and forgotten.
+    app.learnMode(LAMP, "scene", "5")
+    assert app.state.lightModes[LAMP].plain == [] && app.state.lightModes[LAMP].scene == ["8"]
+}
+
 check("an expired token: discovery says so, the live connection keeps going") {
     app.accountDevicesResp(resp(200, [status: 200, message: "token expired"]), [:])
     hub.settle()

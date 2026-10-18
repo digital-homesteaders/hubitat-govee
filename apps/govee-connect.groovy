@@ -77,6 +77,17 @@ preferences {
 // LAN commands a device didn't confirm, in a row, before LAN is paused for it, and for how long.
 @Field static final int LAN_MISSES_OFF = 2
 @Field static final long LAN_OFF_MS = 3600 * 1000L
+// Lights report a model-specific "mode" number over MQTT (H60B0: 5 = colour or white,
+// 8 = scene; H6022 and others differ). The app learns each light's numbers: after
+// Hubitat sets a colour (plain) or a scene, the next report's mode is that kind.
+// MODE_INTENT: device id -> [kind: "plain" | "scene", at: ms].
+@Field static final ConcurrentHashMap<String, Map> MODE_INTENT = new ConcurrentHashMap<>()
+// A report this soon after the command may still show the old mode; later than the
+// max, something else may have changed the light.
+@Field static final long MODE_LEARN_MIN_MS = 1000L
+@Field static final long MODE_LEARN_MAX_MS = 30 * 1000L
+// Ask for a status this long after a colour or scene command, to learn from.
+@Field static final int MODE_QUERY_S = 3
 // Govee's scene library per model (sku -> [p: paramId -> [code, param], s: sceneId -> ...]),
 // for running scenes over the LAN. Kept in memory only: fetched again after a
 // reboot or code save, the first time a lamp of that model is seen on the LAN.
@@ -679,12 +690,58 @@ void iotMessage(Map msg) {
         cd.goveeSeen(via)
         return
     }
+    if (s.mode != null && cd.getDataValue("kind") == "light") s.putAll(sceneFromMode(id, s.mode))
     cd.goveeUpdate(s, via)
     // Fans report only power over MQTT: read speed and mode once power changes.
     if (cd.getDataValue("kind") == "fan" && s.containsKey("onOff") && settings.apiKey) runIn(2, "refreshDevice", [data: [id: id], overwrite: false])
 }
 
 void noteIot(String id, long at) { if (id) LAST_IOT.put(id, at) }
+
+/**
+ * What a light's reported mode says about scenes: [scene: true] while one runs,
+ * [scene: false, effect: null] once it's back to a plain colour or white, or
+ * nothing while the number isn't known yet. Learns the number first when Hubitat
+ * has just set a colour or scene.
+ */
+Map sceneFromMode(String id, def mode) {
+    String m = mode.toString()
+    Map intent = MODE_INTENT[id]
+    long age = intent ? now() - (intent.at as long) : Long.MAX_VALUE
+    if (intent && age >= MODE_LEARN_MIN_MS && age <= MODE_LEARN_MAX_MS) {
+        MODE_INTENT.remove(id)
+        learnMode(id, intent.kind as String, m)
+    }
+    // Hubitat's own recent command already says what the light is doing.
+    if (age < MODE_LEARN_MIN_MS) return [:]
+    Map known = (state.lightModes ?: [:])[id] ?: [:]
+    if (m in (known.scene ?: [])) return [scene: true]
+    if (m in (known.plain ?: [])) return [scene: false, effect: null]
+    return [:]
+}
+
+/** Record that `mode` means `kind` for this light; a number seen as both is dropped. */
+void learnMode(String id, String kind, String mode) {
+    Map all = state.lightModes ?: [:]
+    Map known = all[id] ?: [plain: [], scene: []]
+    String other = kind == "scene" ? "plain" : "scene"
+    if (mode in (known[kind] ?: [])) return
+    if (mode in (known[other] ?: [])) {
+        known[other] = (known[other] as List) - mode
+        logDebug "${deviceById(id)?.displayName}: mode ${mode} seen for both plain and scene; forgetting it"
+    } else {
+        known[kind] = ((known[kind] ?: []) as List) + mode
+        logDebug "${deviceById(id)?.displayName}: mode ${mode} means ${kind}"
+    }
+    all[id] = known
+    state.lightModes = all
+}
+
+/** Ask a light for its state over MQTT, to learn its mode after a colour or scene command. */
+void modeQuery(Map data) {
+    String topic = (state.discovered ?: [:])[data?.id]?.topic
+    if (topic) getConnection()?.queryStatus([(data.id): topic])
+}
 
 /** MQTT state -> the app's state keys. */
 Map normalizeIot(Map st) {
@@ -748,6 +805,12 @@ private List lightEvents(Map s, Map caps) {
     if (s.brightness != null) ev << say([name: "level", value: Math.max(0, Math.min(100, s.brightness as int)), unit: "%"], "brightness is")
     int ct = (s.ct ?: 0) as int
     Map c = s.color
+    if (s.scene == true) {
+        // The colour a light reports during a scene is stale: show the scene instead.
+        ev << say([name: "colorMode", value: "EFFECTS"], "color mode is")
+        ev << say([name: "effectName", value: s.effect ?: "unknown"], "scene is")
+        return ev
+    }
     if (ct > 0) {
         ev << [name: "colorMode", value: "CT"]
         ev << say([name: "colorTemperature", value: ct, unit: "K"], "color temperature is")
@@ -863,6 +926,7 @@ Map planCommand(def cd, Map s, String cmd, List args) {
             opt.color = rgb
             opt.ct = 0
             opt.effect = null
+            opt.scene = false
             if (hsl.level != null) {
                 int level = clamp(hsl.level as int, 1, 100)
                 send << [via: "iot", cmd: "brightness", data: [val: level], api: [type: "devices.capabilities.range", instance: "brightness", value: level]]
@@ -880,6 +944,7 @@ Map planCommand(def cd, Map s, String cmd, List args) {
             opt.color = rgb
             opt.ct = 0
             opt.effect = null
+            opt.scene = false
             if (s.onOff != 1) { send << power(1); opt.onOff = 1 }
             break
         case "setColorTemperature":
@@ -889,6 +954,7 @@ Map planCommand(def cd, Map s, String cmd, List args) {
                      api: [type: "devices.capabilities.color_setting", instance: "colorTemperatureK", value: k]]
             opt.ct = k
             opt.effect = null
+            opt.scene = false
             if (args.size() > 1 && args[1] != null) {
                 int level = clamp(args[1] as int, 1, 100)
                 send << [via: "iot", cmd: "brightness", data: [val: level], api: [type: "devices.capabilities.range", instance: "brightness", value: level]]
@@ -902,6 +968,7 @@ Map planCommand(def cd, Map s, String cmd, List args) {
             if (!entry) return [send: [], optimistic: [:], error: "no such scene"]
             send << [via: "api", api: [type: "devices.capabilities.dynamic_scene", instance: entry[1] == "diy" ? "diyScene" : "lightScene", value: entry[2]]]
             opt.effect = entry[0]
+            opt.scene = true
             opt.onOff = 1
             break
         case "setSpeed":
@@ -999,6 +1066,10 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
             }
             sendApi(id, sku, item.api as Map)
         }
+    }
+    if (plan.optimistic.containsKey("scene") && topic) {
+        MODE_INTENT[id] = [kind: plan.optimistic.scene ? "scene" : "plain", at: now()]
+        runIn(MODE_QUERY_S, "modeQuery", [data: [id: id], overwrite: false])
     }
     return plan.optimistic
 }
@@ -1307,7 +1378,8 @@ void refreshDevice(Map data) {
 void refreshFromDriver(def cd) {
     String id = cd.getDataValue("id")
     String topic = (state.discovered ?: [:])[id]?.topic
-    getConnection()?.queryStatus(topic ? [(id): topic] : [:])
+    // No topic: nothing to ask (an empty map would mean every device).
+    if (topic) getConnection()?.queryStatus([(id): topic])
     refreshDevice([id: id])
 }
 
