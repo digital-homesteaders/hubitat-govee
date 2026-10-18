@@ -31,7 +31,7 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 metadata {
-    definition(name: "Govee Cloud Connection", namespace: "govee", author: "Digital Homesteaders", importUrl: "") {
+    definition(name: "Govee Cloud Connection", namespace: "govee", author: "Digital Homesteaders", importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-cloud-connection.groovy") {
         capability "Initialize"
         attribute "connection", "enum", ["connecting", "connected", "disconnected"]
         command "reconnect"
@@ -43,7 +43,7 @@ metadata {
     }
 }
 
-@Field static final String DRIVER_VERSION = "0.3.0"
+@Field static final String DRIVER_VERSION = "0.4.0"
 @Field static final int CONNECT_WAIT_S = 5
 @Field static final long CONFIRM_QUERY_MS = 1500
 @Field static final int CONFIRM_TIMEOUT_S = 6

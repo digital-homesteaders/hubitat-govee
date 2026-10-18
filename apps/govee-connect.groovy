@@ -35,7 +35,7 @@ definition(
     singleInstance: true,
     iconUrl: "",
     iconX2Url: "",
-    importUrl: ""
+    importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/apps/govee-connect.groovy"
 )
 
 preferences {
@@ -47,7 +47,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.3.0"
+@Field static final String VERSION = "0.4.0"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).

@@ -42,7 +42,19 @@ An optional **Govee API key** adds the official Platform API, for:
 
 ## Install
 
-Paste each file into Hubitat (**Apps Code** / **Drivers Code** → New → paste → Save):
+### Hubitat Package Manager (recommended)
+
+Not published yet. Once the repository is on GitHub, run
+`scripts/set-github-owner.sh <owner>` to fill in the `GITHUB_OWNER` placeholders, then
+in HPM choose **Install → From a URL** and give it the raw URL of `packageManifest.json`.
+HPM installs the app and all three drivers together and offers updates whenever a new
+version is released, so the files can't drift apart.
+
+### Manually
+
+Paste each file into Hubitat (**Apps Code** / **Drivers Code** → New → paste → Save).
+Once the repository is public, each code page's **Import** button fetches the file from
+its import URL instead of pasting.
 
 | File | Where |
 |---|---|
@@ -56,6 +68,9 @@ Then go to **Apps → Add User App → Govee Connect**:
    enter it and press **Submit code**.
 2. Optionally add your API key (Govee Home app → Profile → Settings → Apply for API Key).
 3. Pick devices, then press **Done**.
+
+To update manually, re-paste **all four files**: every release stamps one version in each,
+and the app page warns when a file is from a different version.
 
 Hubitat keeps a sign-in token and the account's device certificate. It never keeps
 your password: that's dropped as soon as the sign-in finishes.

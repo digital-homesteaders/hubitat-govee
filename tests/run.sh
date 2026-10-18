@@ -22,7 +22,7 @@ if ! "$GROOVYC" -d "$BUILD" tests/support/*.groovy > "$BUILD/out.txt" 2>&1; then
 fi
 
 status=0
-for t in tests/CompileCheck.groovy tests/MappingTest.groovy tests/DriverFlowTest.groovy; do
+for t in tests/CompileCheck.groovy tests/PackageCheck.groovy tests/MappingTest.groovy tests/DriverFlowTest.groovy; do
     [ -f "$t" ] || continue
     echo "== $t"
     "$GROOVY" -cp "$BUILD" "$t" > "$BUILD/out.txt" 2>&1 || status=1

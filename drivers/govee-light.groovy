@@ -11,7 +11,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.3.0"
+@Field static final String DRIVER_VERSION = "0.4.0"
 
 // How the app last reached the device: the LAN, Govee's live (MQTT) connection, or the Govee API.
 @Field static final Map TRANSPORTS = [lan: "local", iot: "cloud-live", api: "cloud-api"]
@@ -20,7 +20,7 @@ import groovy.transform.Field
 @Field static final List OLD_ATTRIBUTES = ["goveeMode"]
 
 metadata {
-    definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", importUrl: "") {
+    definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-light.groovy") {
         capability "Actuator"
         capability "Light"
         capability "Switch"
