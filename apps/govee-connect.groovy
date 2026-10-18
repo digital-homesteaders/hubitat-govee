@@ -246,6 +246,7 @@ void initialize() {
         return
     }
     getConnection()?.connectMqtt()
+    loadScenes()
     int minutes = ((settings.pollMinutes ?: "5") as int)
     schedule("0 */${minutes} * ? * *", "pollQuiet")
     runEvery1Hour("dailyDiscovery")
@@ -529,6 +530,46 @@ private void finishDiscovery(Map apiDevices) {
         Map d = found[cd.getDataValue("id")]
         if (d?.caps) cd.updateDataValue("caps", JsonOutput.toJson(d.caps))
     }
+    loadScenes(true)
+}
+
+// ---------------------------------------------------------------- scenes
+
+/**
+ * Fetch each light's scene and DIY scene lists from the API, for lights
+ * that have them. Without `force`, only lights with no list from the last day.
+ * The lists live on the light devices, not in the app's state.
+ */
+void loadScenes(boolean force = false) {
+    if (!settings.apiKey) return
+    Map at = state.scenesAt ?: [:]
+    getGoveeDevices().findAll { it.getDataValue("kind") == "light" }.each { cd ->
+        String id = cd.getDataValue("id")
+        if (!force && at[id] && now() - (at[id] as long) < DISCOVERY_MAX_AGE_MS) return
+        List instances = capsOf(cd).instances ?: []
+        Map body = [requestId: "hubitat-${now()}", payload: [sku: cd.getDataValue("sku"), device: id]]
+        if ("lightScene" in instances) apiRequest("POST", "/device/scenes", body, "scenesResp", [id: id, kind: "scene"])
+        if ("diyScene" in instances) apiRequest("POST", "/device/diy-scenes", body, "scenesResp", [id: id, kind: "diy"])
+        at[id] = now()
+    }
+    state.scenesAt = at
+}
+
+void scenesResp(resp, Map data) {
+    Map json = apiJson(resp)
+    def cd = deviceById(data?.id as String)
+    if (!cd) return
+    List caps = json?.payload?.capabilities
+    if (statusOf(resp) != 200 || !(caps instanceof List)) {
+        log.warn "Govee: ${cd.displayName}: reading its ${data.kind == 'diy' ? 'DIY scenes' : 'scenes'} failed (HTTP ${statusOf(resp)})"
+        return
+    }
+    List list = []
+    caps.findAll { it.type == "devices.capabilities.dynamic_scene" }.each { Map c ->
+        ((c.parameters?.options ?: []) as List).each { Map o -> if (o.name && o.value != null) list << [o.name, data.kind, o.value] }
+    }
+    logDebug "${cd.displayName}: ${list.size()} ${data.kind} scene(s)"
+    cd.goveeScenes(data.kind as String, list)
 }
 
 /** Light or fan from the SKU, when there's no API key to ask: fans are H710x/H711x, other H7xxx are appliances, H5xxx sensors. */
@@ -676,6 +717,7 @@ private List lightEvents(Map s, Map caps) {
         ev << [name: "colorName", value: hueName(hsv.hue as int, hsv.saturation as int)]
     }
     if (s.mode != null) ev << [name: "goveeMode", value: s.mode.toString()]
+    if (s.containsKey("effect")) ev << [name: "effectName", value: s.effect ?: "none"]
     return ev
 }
 
@@ -753,6 +795,7 @@ Map planCommand(def cd, Map s, String cmd, List args) {
             send << colorSend(rgb)
             opt.color = rgb
             opt.ct = 0
+            opt.effect = null
             if (hsl.level != null) {
                 int level = clamp(hsl.level as int, 1, 100)
                 send << [via: "iot", cmd: "brightness", data: [val: level], api: [type: "devices.capabilities.range", instance: "brightness", value: level]]
@@ -769,6 +812,7 @@ Map planCommand(def cd, Map s, String cmd, List args) {
             send << colorSend(rgb)
             opt.color = rgb
             opt.ct = 0
+            opt.effect = null
             if (s.onOff != 1) { send << power(1); opt.onOff = 1 }
             break
         case "setColorTemperature":
@@ -777,12 +821,21 @@ Map planCommand(def cd, Map s, String cmd, List args) {
             send << [via: "iot", cmd: "colorwc", data: [color: [r: 0, g: 0, b: 0], colorTemInKelvin: k],
                      api: [type: "devices.capabilities.color_setting", instance: "colorTemperatureK", value: k]]
             opt.ct = k
+            opt.effect = null
             if (args.size() > 1 && args[1] != null) {
                 int level = clamp(args[1] as int, 1, 100)
                 send << [via: "iot", cmd: "brightness", data: [val: level], api: [type: "devices.capabilities.range", instance: "brightness", value: level]]
                 opt.brightness = level
             }
             if (s.onOff != 1) { send << power(1); opt.onOff = 1 }
+            break
+        case "setEffect":
+            // args[0] is the driver's scene entry: [name, kind ("scene" or "diy"), API value].
+            List entry = args[0] as List
+            if (!entry) return [send: [], optimistic: [:], error: "no such scene"]
+            send << [via: "api", api: [type: "devices.capabilities.dynamic_scene", instance: entry[1] == "diy" ? "diyScene" : "lightScene", value: entry[2]]]
+            opt.effect = entry[0]
+            opt.onOff = 1
             break
         case "setSpeed":
             String name = args[0] as String

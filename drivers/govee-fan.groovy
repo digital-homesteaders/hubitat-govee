@@ -78,6 +78,9 @@ void goveeUpdate(Map reported, String source) {
     merge(reported)
 }
 
+/** Fans have no scenes; the app may still offer a list. */
+void goveeScenes(String kind, List list) {}
+
 void goveeSeen(String source) {
     if (device.currentValue("transport") != source) sendEvent(name: "transport", value: source)
 }

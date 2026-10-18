@@ -22,6 +22,7 @@ metadata {
         capability "ColorControl"
         capability "ColorTemperature"
         capability "ColorMode"
+        capability "LightEffects"
         capability "Refresh"
 
         attribute "healthStatus", "enum", ["online", "offline"]
@@ -60,6 +61,40 @@ def setHue(hue) { sendGovee("setHue", [hue]) }
 def setSaturation(saturation) { sendGovee("setSaturation", [saturation]) }
 def setColorTemperature(temp, level = null, transitionTime = null) { sendGovee("setColorTemperature", [temp, level]) }
 
+// Scenes, numbered as in the lightEffects attribute (Govee scenes first, then DIY).
+def setEffect(effect) {
+    int n = (effect ?: 0) as int
+    List scenes = state.scenes ?: []
+    if (n < 1 || n > scenes.size()) {
+        log.warn "${device.displayName}: no scene ${effect} (there are ${scenes.size()}; see lightEffects)"
+        return
+    }
+    state.effectIndex = n
+    sendGovee("setEffect", [scenes[n - 1]])
+}
+
+def setNextEffect() { stepEffect(1) }
+def setPreviousEffect() { stepEffect(-1) }
+
+private void stepEffect(int delta) {
+    int size = (state.scenes ?: []).size()
+    if (!size) return
+    int cur = (state.effectIndex ?: 0) as int
+    setEffect(((cur - 1 + delta) % size + size) % size + 1)
+}
+
+/** The app hands over a scene list ("scene" or "diy"); both lists make up the numbered effects. */
+void goveeScenes(String kind, List list) {
+    Map lists = state.sceneLists ?: [:]
+    lists[kind] = list ?: []
+    state.sceneLists = lists
+    List all = ((lists.scene ?: []) as List) + ((lists.diy ?: []) as List).collect { ["DIY: ${it[0]}".toString(), it[1], it[2]] }
+    state.scenes = all
+    Map effects = [:]
+    all.eachWithIndex { e, i -> effects[(i + 1).toString()] = e[0] }
+    sendEvent(name: "lightEffects", value: groovy.json.JsonOutput.toJson(effects))
+}
+
 private void sendGovee(String cmd, List args = []) {
     Map optimistic = parent?.goveeCommand(device, state.gov ?: [:], cmd, args)
     // Show the change straight away; the light's own report follows.
@@ -93,7 +128,7 @@ private void emit(Map e) {
     // Most of each report is unchanged: skip those values rather than send them.
     boolean same = device.currentValue(e.name)?.toString() == e.value?.toString()
     if (same && !e.isStateChange) return
-    if (txtEnable && e.name in ["switch", "level", "colorName", "colorTemperature", "healthStatus"]) {
+    if (txtEnable && e.name in ["switch", "level", "colorName", "colorTemperature", "healthStatus", "effectName"]) {
         e.descriptionText = "${device.displayName} ${e.name} is ${e.value}${e.unit ?: ''}"
         log.info e.descriptionText
     }

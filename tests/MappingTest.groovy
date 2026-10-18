@@ -108,7 +108,7 @@ check("plan: setColor sends colorwc RGB, level and power") {
     assert p.send*.cmd == ["colorwc", "brightness", "turn"]
     assert p.send[0].data == [color: [r: 255, g: 0, b: 0], colorTemInKelvin: 0]
     assert p.send[0].api == [type: "devices.capabilities.color_setting", instance: "colorRgb", value: 0xFF0000]
-    assert p.optimistic == [color: [r: 255, g: 0, b: 0], ct: 0, brightness: 50, onOff: 1]
+    assert p.optimistic == [color: [r: 255, g: 0, b: 0], ct: 0, effect: null, brightness: 50, onOff: 1]
 }
 
 check("plan: setHue keeps the current saturation") {
@@ -119,8 +119,17 @@ check("plan: setHue keeps the current saturation") {
 
 check("plan: setColorTemperature is clamped to the device's range") {
     Map p = plan("light", [onOff: 1], "setColorTemperature", [12000], [ct: [2700, 6500]])
-    assert p.send[0].data == [color: [r: 0, g: 0, b: 0], colorTemInKelvin: 6500] && p.optimistic == [ct: 6500]
+    assert p.send[0].data == [color: [r: 0, g: 0, b: 0], colorTemInKelvin: 6500] && p.optimistic == [ct: 6500, effect: null]
     assert plan("light", [onOff: 1], "setColorTemperature", [1000]).send[0].data.colorTemInKelvin == 2000
+}
+
+check("plan: a scene goes over the API with Govee's own option value; colour clears it") {
+    Map p = plan("light", [onOff: 0], "setEffect", [["Sunrise", "scene", [paramId: 1681, id: 1606]]])
+    assert p.send == [[via: "api", api: [type: "devices.capabilities.dynamic_scene", instance: "lightScene", value: [paramId: 1681, id: 1606]]]]
+    assert p.optimistic == [effect: "Sunrise", onOff: 1]
+    assert plan("light", [:], "setEffect", [["DIY: Mine", "diy", 8455]]).send[0].api.instance == "diyScene"
+    assert events("light", [effect: "Sunrise"]).effectName == "Sunrise" && events("light", [effect: null]).effectName == "none"
+    assert !events("light", [onOff: 1]).containsKey("effectName")
 }
 
 check("plan: fan speeds and modes go over the API") {

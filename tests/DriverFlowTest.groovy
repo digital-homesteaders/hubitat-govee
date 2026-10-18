@@ -328,6 +328,41 @@ check("expected values per MQTT command") {
     assert d.reportMatches([colorTemInKelvin: 3000], [colorTemInKelvin: 3030]) && !d.reportMatches([onOff: 1], [brightness: 3])
 }
 
+check("scenes: fetched per light, numbered as light effects, set over the API") {
+    app.state.remove("apiOnly")
+    int posts = app.callsNamed("asynchttpPost").size()
+    app.loadScenes(true)
+    List c = app.callsNamed("asynchttpPost").drop(posts)
+    assert c.collect { it[2].uri.tokenize("/").last() } as Set == ["scenes", "diy-scenes"] as Set
+    assert c.every { bodyOf(it).payload.device == LAMP }, "only the light has scenes"
+    List sceneCall = c.find { it[2].uri.endsWith("/device/scenes") }
+    app.scenesResp(resp(200, [code: 200, payload: [capabilities: [[type: "devices.capabilities.dynamic_scene", instance: "lightScene",
+        parameters: [options: [[name: "Sunrise", value: [paramId: 1681, id: 1606]], [name: "Ocean", value: [paramId: 1683, id: 1608]]]]]]]]), sceneCall[3])
+    List diyCall = c.find { it[2].uri.endsWith("/diy-scenes") }
+    app.scenesResp(resp(200, [code: 200, payload: [capabilities: [[type: "devices.capabilities.dynamic_scene", instance: "diyScene",
+        parameters: [options: [[name: "Mine", value: 8455]]]]]]]), diyCall[3])
+    hub.settle()
+    assert new JsonSlurper().parseText(lamp().currentValue("lightEffects")) == ["1": "Sunrise", "2": "Ocean", "3": "DIY: Mine"]
+    posts = app.callsNamed("asynchttpPost").size()
+    lamp().setEffect(2)
+    hub.settle()
+    assert bodyOf(app.callsNamed("asynchttpPost").drop(posts)[0]).payload.capability == [type: "devices.capabilities.dynamic_scene", instance: "lightScene", value: [paramId: 1683, id: 1608]]
+    assert lamp().currentValue("effectName") == "Ocean"
+    lamp().setNextEffect()
+    hub.settle()
+    assert lamp().currentValue("effectName") == "DIY: Mine"
+    assert bodyOf(app.callsNamed("asynchttpPost").last()).payload.capability == [type: "devices.capabilities.dynamic_scene", instance: "diyScene", value: 8455]
+    lamp().setNextEffect()
+    hub.settle()
+    assert lamp().currentValue("effectName") == "Sunrise", "wraps around"
+    lamp().setColorTemperature(4000)
+    hub.settle()
+    assert lamp().currentValue("effectName") == "none"
+    posts = app.callsNamed("asynchttpPost").size()
+    lamp().setEffect(9)
+    assert app.callsNamed("asynchttpPost").size() == posts
+}
+
 check("fan: power over MQTT; speed, mode and oscillation over the API") {
     int from = pubCount()
     fan().on()
