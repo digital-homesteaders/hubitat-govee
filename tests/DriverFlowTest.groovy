@@ -455,10 +455,17 @@ check("LAN: a fading light is read again; it confirms on a later read") {
     assert pubCount() == from && !app.state.lanMisses?.get(LAMP), "confirmed, nothing sent through the cloud"
 }
 
-check("LAN: a light that still disagrees after three reads gets the command through the cloud") {
+check("LAN: a light that still disagrees is sent the command again over the LAN, then through the cloud") {
     int from = pubCount()
     lamp().off()
     hub.settle()
+    int acts = conn().driver.callsNamed("sendHubCommand").size()
+    3.times {
+        conn().lanConfirm()
+        conn().parse(lanEvent("192.168.1.50", [cmd: "devStatus", data: [onOff: 1, brightness: 40]]))
+        hub.settle()
+    }
+    assert published(from).isEmpty() && hubActions(acts).findAll { it[1].cmd == "turn" } == [["192.168.1.50:4003", [cmd: "turn", data: [value: 0]]]], "resent over the LAN"
     3.times {
         assert published(from).isEmpty()
         conn().lanConfirm()
@@ -469,6 +476,30 @@ check("LAN: a light that still disagrees after three reads gets the command thro
     assert p.size() == 1 && new JsonSlurper().parseText(p[0][2]).msg.cmd == "turn", "fell back to MQTT"
     assert lamp().currentValue("switch") == "off", "the stale on is held back"
     assert app.state.lanMisses[LAMP] == 1 && app.lanUsable(LAMP)
+}
+
+check("LAN: a command overtaken by a newer one is never resent through the cloud") {
+    app.state.remove("lanMisses")
+    int from = pubCount()
+    int posts = app.callsNamed("asynchttpPost").size()
+    lamp().off()
+    hub.settle()
+    // The off is still waiting when the user turns it back on, then the off's timer runs out.
+    conn().driver.mem().pending.get(LAMP)?.each { it.at = 0L }
+    List keep = conn().driver.mem().pending.get(LAMP)
+    lamp().on()
+    hub.settle()
+    conn().driver.mem().pending.put(LAMP, keep + conn().driver.mem().pending.get(LAMP))
+    hub.advance(3000)
+    conn().checkPending()
+    hub.settle()
+    List cloud = published(from).collect { new JsonSlurper().parseText(it[2]).msg.data } +
+        app.callsNamed("asynchttpPost").drop(posts).collect { bodyOf(it).payload.capability.value }
+    assert !cloud.any { it == [val: 0] || it == 0 }, "the stale off isn't resent: ${cloud}"
+    // Leave things as the next test expects: one miss so far, nothing waiting.
+    conn().driver.mem().pending.clear()
+    app.state.lanMisses = [(LAMP): 1]
+    app.state.remove("lanOff")
 }
 
 check("LAN: two misses in a row pause LAN for the lamp for an hour") {

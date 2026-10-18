@@ -96,7 +96,7 @@ private Map mem() {
     Long id = device.idAsLong
     Map m = MEM.get(id)
     if (m == null) {
-        MEM.putIfAbsent(id, [pending: [:]])
+        MEM.putIfAbsent(id, [pending: [:], intent: [:]])
         m = MEM.get(id)
     }
     return m
@@ -287,9 +287,18 @@ private Map settlePending(String id, Map st) {
     List failed = answered.findAll { Map e ->
         if (e.via != "lan") return true
         e.reads = ((e.reads ?: 0) as int) + 1
-        if ((e.reads as int) >= LAN_READS) return true
         e.queriedAt = null
-        return false
+        if ((e.reads as int) < LAN_READS) return false
+        // The light answers but still disagrees: it's reachable, so send it once more over the LAN.
+        if (!e.resent) {
+            e.resent = true
+            e.reads = 0
+            e.at = now()
+            lanSend(e.ip as String, [msg: [cmd: e.cmd, data: lanData(e.data as Map)]])
+            logDebug "LAN ${e.ip}: resending ${e.cmd}"
+            return false
+        }
+        return true
     }
     if (answered.size() > failed.size()) runInMillis(LAN_REREAD_MS, "lanConfirm", [overwrite: true])
     List waiting = open - failed
@@ -345,6 +354,7 @@ def publishCommand(String id, String topic, String cmd, Map data, Map api, Map e
         return
     }
     Map p = mem().pending
+    noteIntent(id, expect)
     // A newer command for the same value replaces the older one (a slider being dragged).
     List list = ((p.get(id) ?: []) as List).findAll { !((it.expect ?: [:]).keySet().intersect((expect ?: [:]).keySet())) }
     list << [api: api, expect: expect ?: [:], at: now(), topic: topic, via: "iot"]
@@ -355,10 +365,29 @@ def publishCommand(String id, String topic, String cmd, Map data, Map api, Map e
 
 /** Hand unconfirmed commands back to the app: LAN ones and MQTT ones go different ways. */
 private void giveUp(String id, List entries) {
+    // A newer command for the same value has been sent since: don't resend the old one.
+    entries = entries.findAll { !superseded(id, it as Map) }
     List lan = entries.findAll { it.via == "lan" }.collect { [cmd: it.cmd, data: it.data, api: it.api] }
     List apis = entries.findAll { it.via != "lan" }.collect { it.api }.findAll { it }
     if (lan) parent?.lanUnconfirmed(id, lan)
     if (apis) parent?.iotUnconfirmed(id, apis)
+}
+
+/** The latest value sent for each key (onOff, brightness, color...), per device. */
+private void noteIntent(String id, Map expect) {
+    Map intent = mem().intent
+    Map mine = (intent.get(id) ?: [:]) as Map
+    (expect ?: [:]).each { k, v -> mine[k] = v }
+    intent.put(id, mine)
+}
+
+/** True when a newer command has set a different value for any of this entry's keys. */
+private boolean superseded(String id, Map e) {
+    Map mine = (mem().intent.get(id) ?: [:]) as Map
+    Map expect = (e.expect ?: [:]) as Map
+    boolean newer = expect.any { k, v -> mine.containsKey(k) && !reportMatches([(k): v], [(k): mine[k]]) }
+    if (newer) logDebug "Dropping a superseded ${e.cmd ?: e.api?.instance} for ...${id.length() > 5 ? id.substring(id.length() - 5) : id}"
+    return newer
 }
 
 /** Devices often report a change on their own; a status query makes sure. */
@@ -470,9 +499,8 @@ private void lanParse(String event) {
  * `expect` right after, the app sends it another way.
  */
 def publishLan(String id, String ip, String cmd, Map data, Map api, Map expect) {
-    // The LAN API spells the value "value" where MQTT uses "val".
-    Map lanData = data.containsKey("val") ? [value: data.val] : data
-    if (!lanSend(ip, [msg: [cmd: cmd, data: lanData]])) {
+    noteIntent(id, expect)
+    if (!lanSend(ip, [msg: [cmd: cmd, data: lanData(data)]])) {
         parent?.lanUnconfirmed(id, [[cmd: cmd, data: data, api: api]])
         return
     }
@@ -488,6 +516,9 @@ def publishLan(String id, String ip, String cmd, Map data, Map api, Map expect) 
     runInMillis(LAN_CONFIRM_MS, "lanConfirm", [overwrite: true])
     runInMillis(LAN_TIMEOUT_MS, "checkPending", [overwrite: true])
 }
+
+/** The LAN API spells the value "value" where MQTT uses "val". */
+private Map lanData(Map data) { data.containsKey("val") ? [value: data.val] : data }
 
 /** Send raw ptReal frames (base64) over the LAN, e.g. a scene. Nothing reports a scene back, so this isn't confirmed. */
 def publishLanFrames(String id, String ip, List frames) {
