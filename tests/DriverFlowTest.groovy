@@ -276,6 +276,26 @@ check("a matching report confirms and clears the misses; a dragged slider confir
     assert !app.state.iotMisses[LAMP]
 }
 
+check("a contradicting answer to the confirm query fails the command at once") {
+    app.state.remove("iotMisses"); app.state.remove("apiOnly")
+    lamp().on()
+    hub.settle()
+    // A report before the confirm query is not its answer: keep waiting.
+    int posts = app.callsNamed("asynchttpPost").size()
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 0]])
+    assert app.callsNamed("asynchttpPost").size() == posts
+    conn().confirmQuery()
+    hub.advance(400)
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 0, brightness: 40]])
+    List c = app.callsNamed("asynchttpPost").drop(posts)
+    assert c.size() == 1 && bodyOf(c[0]).payload.capability == [type: "devices.capabilities.on_off", instance: "powerSwitch", value: 1]
+    assert lamp().currentValue("switch") == "on", "the stale off is still held back"
+    hub.advance(7000)
+    conn().checkPending()
+    assert app.callsNamed("asynchttpPost").size() == posts + 1, "not sent twice"
+    app.state.remove("iotMisses"); app.state.remove("apiOnly")
+}
+
 check("expected values per MQTT command") {
     assert app.expectFor("turn", [val: 1]) == [onOff: 1]
     assert app.expectFor("brightness", [val: 30]) == [brightness: 30]

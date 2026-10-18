@@ -42,6 +42,9 @@ metadata {
 @Field static final int CONNECT_WAIT_S = 5
 @Field static final long CONFIRM_QUERY_MS = 1500
 @Field static final int CONFIRM_TIMEOUT_S = 6
+// A report this long after our confirm query is its answer: if it still shows
+// the old value, the command failed and there's no point waiting longer.
+@Field static final long QUERY_ANSWER_MS = 150
 @Field static final int RECONNECT_MAX_S = 300
 
 // Unconfirmed commands per connection device. Lost on reboot, which is fine:
@@ -246,7 +249,14 @@ private Map settlePending(String id, Map st) {
     if (!list) return st
     List open = list.findAll { !reportMatches(it.expect as Map, st) }
     if (open.size() < list.size()) parent?.iotConfirmed(id)
-    if (open) p.put(id, open) else p.remove(id)
+    // The answer to our confirm query still shows the old value: give up now.
+    List failed = open.findAll { Map e ->
+        e.queriedAt && now() - (e.queriedAt as long) >= QUERY_ANSWER_MS && (e.expect ?: [:]).keySet().every { st.containsKey(it) }
+    }
+    List waiting = open - failed
+    if (waiting) p.put(id, waiting) else p.remove(id)
+    List apis = failed.collect { it.api }.findAll { it }
+    if (apis) parent?.iotUnconfirmed(id, apis)
     Map out = new LinkedHashMap(st)
     open.each { Map e ->
         (e.expect ?: [:]).keySet().each { String k ->
@@ -308,7 +318,12 @@ def publishCommand(String id, String topic, String cmd, Map data, Map api, Map e
 /** Devices often report a change on their own; a status query makes sure. */
 def confirmQuery() {
     Map topics = [:]
-    mem().pending.each { String id, List list -> if (list) topics[id] = list[-1].topic }
+    long t = now()
+    mem().pending.each { String id, List list ->
+        if (!list) return
+        list.each { Map e -> if (!e.queriedAt) e.queriedAt = t }
+        topics[id] = list[-1].topic
+    }
     if (topics) queryStatus(topics)
 }
 
