@@ -57,8 +57,14 @@ metadata {
 @Field static final int LAN_REPLY_PORT = 4002
 @Field static final int LAN_CMD_PORT = 4003
 @Field static final int LAN_SCAN_S = 300
-// devStatus is read this long after a LAN command, to confirm it.
+// devStatus is read this long after a LAN command, to confirm it. A light that
+// fades may not show the new value yet, so a mismatch is read again (up to
+// LAN_READS times, LAN_REREAD_MS apart) before the command goes another way.
 @Field static final long LAN_CONFIRM_MS = 300
+@Field static final long LAN_REREAD_MS = 400
+@Field static final int LAN_READS = 3
+// A LAN command with no matching answer after this long goes another way.
+@Field static final long LAN_TIMEOUT_MS = 2500
 
 // Unconfirmed commands per connection device. Lost on reboot, which is fine:
 // they are seconds old at most.
@@ -272,12 +278,20 @@ private Map settlePending(String id, Map st) {
     List done = list - open
     if (done.any { it.via == "lan" }) parent?.lanConfirmed(id)
     if (done.any { it.via != "lan" }) parent?.iotConfirmed(id)
-    // The answer to our confirm query still shows the old value: give up now.
-    // (A LAN answer comes back in milliseconds; an MQTT one needs a moment.)
-    List failed = open.findAll { Map e ->
+    // The answer to our confirm query still shows the old value. Over MQTT, give
+    // up now; over the LAN, read again a couple of times (the light may be fading).
+    List answered = open.findAll { Map e ->
         long wait = e.via == "lan" ? 0L : QUERY_ANSWER_MS
         e.queriedAt && now() - (e.queriedAt as long) >= wait && (e.expect ?: [:]).keySet().every { st.containsKey(it) }
     }
+    List failed = answered.findAll { Map e ->
+        if (e.via != "lan") return true
+        e.reads = ((e.reads ?: 0) as int) + 1
+        if ((e.reads as int) >= LAN_READS) return true
+        e.queriedAt = null
+        return false
+    }
+    if (answered.size() > failed.size()) runInMillis(LAN_REREAD_MS, "lanConfirm", [overwrite: true])
     List waiting = open - failed
     if (waiting) p.put(id, waiting) else p.remove(id)
     giveUp(id, failed)
@@ -362,17 +376,18 @@ def confirmQuery() {
 
 def checkPending() {
     long cutoff = now() - CONFIRM_TIMEOUT_S * 1000L + 500
+    long lanCutoff = now() - LAN_TIMEOUT_MS + 200
     Map p = mem().pending
     List ids = p.keySet().toList()
     ids.each { String id ->
         List list = p.get(id) ?: []
-        List expired = list.findAll { (it.at as long) <= cutoff }
+        List expired = list.findAll { (it.at as long) <= (it.via == "lan" ? lanCutoff : cutoff) }
         if (!expired) return
         p.put(id, list - expired)
         if (!p.get(id)) p.remove(id)
         giveUp(id, expired)
     }
-    if (p) runIn(CONFIRM_TIMEOUT_S, "checkPending", [overwrite: true])
+    if (p) runInMillis(p.values().flatten().any { it.via == "lan" } ? LAN_TIMEOUT_MS : CONFIRM_TIMEOUT_S * 1000L, "checkPending", [overwrite: true])
 }
 
 // ---------------------------------------------------------------- LAN
@@ -471,7 +486,7 @@ def publishLan(String id, String ip, String cmd, Map data, Map api, Map expect) 
     list << [api: api, cmd: cmd, data: data, expect: expect ?: [:], at: now(), ip: ip, via: "lan"]
     p.put(id, list)
     runInMillis(LAN_CONFIRM_MS, "lanConfirm", [overwrite: true])
-    runIn(CONFIRM_TIMEOUT_S, "checkPending", [overwrite: true])
+    runInMillis(LAN_TIMEOUT_MS, "checkPending", [overwrite: true])
 }
 
 /** Send raw ptReal frames (base64) over the LAN, e.g. a scene. Nothing reports a scene back, so this isn't confirmed. */

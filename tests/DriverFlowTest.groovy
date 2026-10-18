@@ -428,7 +428,7 @@ check("LAN: commands go to the lamp directly and a devStatus read confirms them"
     List a = hubActions(acts)
     assert a[0] == ["192.168.1.50:4003", [cmd: "turn", data: [value: 1]]]
     assert a[1] == ["192.168.1.50:4003", [cmd: "colorwc", data: [color: [r: 0, g: 0, b: 0], colorTemInKelvin: 3000]]]
-    assert conn().driver.callsNamed("runInMillis").last()[2] == "lanConfirm"
+    assert conn().driver.callsNamed("runInMillis").takeRight(2)*.getAt(2) == ["lanConfirm", "checkPending"]
     conn().lanConfirm()
     assert hubActions(acts).last() == ["192.168.1.50:4003", [cmd: "devStatus", data: [:]]]
     conn().parse(lanEvent("192.168.1.50", [cmd: "devStatus", data: [onOff: 1, brightness: 40, color: [r: 0, g: 0, b: 0], colorTemInKelvin: 3000]]))
@@ -440,13 +440,31 @@ check("LAN: commands go to the lamp directly and a devStatus read confirms them"
     assert app.callsNamed("asynchttpPost").size() == posts && pubCount() == from, "confirmed: nothing resent"
 }
 
-check("LAN: a devStatus that contradicts the command sends it through the cloud at once") {
+check("LAN: a fading light is read again; it confirms on a later read") {
+    int from = pubCount()
+    lamp().setLevel(80)
+    hub.settle()
+    conn().lanConfirm()
+    conn().parse(lanEvent("192.168.1.50", [cmd: "devStatus", data: [onOff: 1, brightness: 55]]))
+    hub.settle()
+    assert conn().driver.callsNamed("runInMillis").last()[2] == "lanConfirm", "read again"
+    assert lamp().currentValue("level") == 80, "the mid-fade value is held back"
+    conn().lanConfirm()
+    conn().parse(lanEvent("192.168.1.50", [cmd: "devStatus", data: [onOff: 1, brightness: 80]]))
+    hub.settle()
+    assert pubCount() == from && !app.state.lanMisses?.get(LAMP), "confirmed, nothing sent through the cloud"
+}
+
+check("LAN: a light that still disagrees after three reads gets the command through the cloud") {
     int from = pubCount()
     lamp().off()
     hub.settle()
-    conn().lanConfirm()
-    conn().parse(lanEvent("192.168.1.50", [cmd: "devStatus", data: [onOff: 1, brightness: 40]]))
-    hub.settle()
+    3.times {
+        assert published(from).isEmpty()
+        conn().lanConfirm()
+        conn().parse(lanEvent("192.168.1.50", [cmd: "devStatus", data: [onOff: 1, brightness: 40]]))
+        hub.settle()
+    }
     List p = published(from)
     assert p.size() == 1 && new JsonSlurper().parseText(p[0][2]).msg.cmd == "turn", "fell back to MQTT"
     assert lamp().currentValue("switch") == "off", "the stale on is held back"
@@ -456,7 +474,10 @@ check("LAN: a devStatus that contradicts the command sends it through the cloud 
 check("LAN: two misses in a row pause LAN for the lamp for an hour") {
     lamp().on()
     hub.settle()
-    hub.advance(7000)
+    hub.advance(1000)
+    conn().checkPending()
+    assert app.lanUsable(LAMP), "not given up after 1 s"
+    hub.advance(2000)
     conn().checkPending()
     hub.settle()
     assert !app.lanUsable(LAMP) && app.log.lines.any { it[1].contains("isn't answering on the LAN") }
