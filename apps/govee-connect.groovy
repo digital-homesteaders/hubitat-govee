@@ -47,7 +47,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.1.7"
+@Field static final String VERSION = "0.2.0"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -72,6 +72,11 @@ preferences {
 // A device that ignored MQTT commands is retried there weekly (one slow
 // press; a single miss after that sends it straight back to the API).
 @Field static final long IOT_RETRY_MS = 7 * 24 * 3600 * 1000L
+// A LAN address not heard from in a scan for this long isn't used.
+@Field static final long LAN_STALE_MS = 16 * 60 * 1000L
+// LAN commands a device didn't confirm, in a row, before LAN is paused for it, and for how long.
+@Field static final int LAN_MISSES_OFF = 2
+@Field static final long LAN_OFF_MS = 3600 * 1000L
 @Field static final Map POLL_CHOICES = ["2": "2 minutes", "5": "5 minutes", "10": "10 minutes", "15": "15 minutes", "30": "30 minutes"]
 
 // Govee device types (Platform API `type`) and the kind of child each becomes.
@@ -145,6 +150,10 @@ def mainPage() {
             input "pollMinutes", "enum", title: "Read quiet devices from the API every", options: POLL_CHOICES, defaultValue: "5", required: true
             if (state.rate) paragraph "API requests left today: ${state.rate.day ?: '?'}; this minute: ${state.rate.minute ?: '?'}"
         }
+        section("Local control") {
+            input "lanEnable", "bool", title: "Use Govee's LAN API for lights that have LAN Control on (Govee Home app > device > settings)", defaultValue: true
+            if (settings.lanEnable != false) paragraph lanSummary()
+        }
         section("Logging") {
             input "logEnable", "bool", title: "Debug logging (turns itself off after 30 minutes)", defaultValue: false
             paragraph "Govee Connect version ${VERSION}${driverVersionNote()}"
@@ -157,6 +166,11 @@ private String driverVersionNote() {
     List odd = getChildDevices().findAll { it.getDataValue("driverVersion") && it.getDataValue("driverVersion") != VERSION }
         .collect { "${it.displayName} (${it.getDataValue('driverVersion')})" } + (state.oldDrivers ?: []).collect { "${it} (older)" }
     return odd ? ". <b>Drivers from another version:</b> ${odd.join(', ')}. Re-paste them and press Done." : ""
+}
+
+private String lanSummary() {
+    List names = getGoveeDevices().findAll { lanUsable(it.getDataValue("id")) }.collect { it.displayName }.sort()
+    return names ? "Controlled locally: ${names.join(', ')}" : "No devices found on the LAN yet (scans run every 5 minutes)."
 }
 
 private Map pickerOptions(Map found) {
@@ -246,6 +260,8 @@ void initialize() {
         return
     }
     getConnection()?.connectMqtt()
+    if (settings.lanEnable != false) getConnection()?.lanStart()
+    else getConnection()?.lanStop()
     loadScenes()
     int minutes = ((settings.pollMinutes ?: "5") as int)
     schedule("0 */${minutes} * ? * *", "pollQuiet")
@@ -628,18 +644,19 @@ private Map jsonish(def v) {
 
 // ---------------------------------------------------------------- MQTT messages
 
-/** A message from the account topic, passed on by the connection driver. */
+/** A report from the account topic (via "iot") or a LAN devStatus (via "lan"), passed on by the connection driver. */
 void iotMessage(Map msg) {
     String id = msg.device
     def cd = deviceById(id)
     if (!cd) return
+    String via = msg.via ?: "iot"
     noteIot(id, now())
     Map s = normalizeIot(msg.state instanceof Map ? msg.state : [:])
     if (!s) {
-        cd.goveeSeen("iot")
+        cd.goveeSeen(via)
         return
     }
-    cd.goveeUpdate(s, "iot")
+    cd.goveeUpdate(s, via)
     // Fans report only power over MQTT: read speed and mode once power changes.
     if (cd.getDataValue("kind") == "fan" && s.containsKey("onOff") && settings.apiKey) runIn(2, "refreshDevice", [data: [id: id], overwrite: false])
 }
@@ -911,8 +928,11 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
     def conn = getConnection()
     String topic = (state.discovered ?: [:])[id]?.topic
     boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(settings.apiKey && apiOnly(id))
+    String ip = conn && lanUsable(id) ? (state.lan ?: [:])[id]?.ip : null
     plan.send.each { Map item ->
-        if (item.via == "iot" && live) {
+        if (item.via == "iot" && ip) {
+            conn.publishLan(id, ip, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
+        } else if (item.via == "iot" && live) {
             conn.publishCommand(id, topic, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
         } else if (item.api) {
             if (item.via == "iot") logDebug "${cd.displayName}: no live connection, sending ${item.cmd} over the API"
@@ -978,6 +998,78 @@ void iotConfirmed(String id) {
         Map ao = state.apiOnly
         ao.remove(id)
         state.apiOnly = ao
+    }
+}
+
+// ---------------------------------------------------------------- LAN
+
+/** A device answered a LAN scan. */
+void lanFound(String id, String ip, String sku) {
+    if (!id || !ip) return
+    Map lan = state.lan ?: [:]
+    Map old = lan[id]
+    lan[id] = [ip: ip, at: now()]
+    state.lan = lan
+    def cd = deviceById(id)
+    if (!cd) return
+    if (old?.ip != ip) {
+        log.info "Govee: ${cd.displayName} found on the LAN at ${ip}"
+        cd.updateDataValue("lanIp", ip)
+    }
+}
+
+/** LAN address -> device id, for the devices in Hubitat. */
+Map lanTargets() {
+    Map out = [:]
+    (state.lan ?: [:]).each { String id, Map l -> if (deviceById(id)) out[l.ip] = id }
+    return out
+}
+
+/** True when commands for this device should go over the LAN. */
+boolean lanUsable(String id) {
+    if (settings.lanEnable == false || !id) return false
+    Map l = (state.lan ?: [:])[id]
+    if (!l?.ip || now() - ((l.at ?: 0) as long) > LAN_STALE_MS) return false
+    Long off = (state.lanOff ?: [:])[id] as Long
+    return off == null || now() - off > LAN_OFF_MS
+}
+
+/**
+ * LAN commands the device didn't confirm: send them over MQTT or the API,
+ * and after a few misses in a row pause LAN for this device for an hour.
+ */
+void lanUnconfirmed(String id, List items) {
+    def cd = deviceById(id)
+    if (!cd || !items) return
+    Map misses = state.lanMisses ?: [:]
+    int n = ((misses[id] ?: 0) as int) + 1
+    misses[id] = n
+    state.lanMisses = misses
+    if (n >= LAN_MISSES_OFF) {
+        Map off = state.lanOff ?: [:]
+        off[id] = now()
+        state.lanOff = off
+        misses.remove(id)
+        state.lanMisses = misses
+        log.info "Govee: ${cd.displayName} isn't answering on the LAN; using the cloud for it for an hour"
+    } else {
+        log.info "Govee: ${cd.displayName} didn't confirm ${items*.cmd.join(', ')} on the LAN; sending it through the cloud"
+    }
+    def conn = getConnection()
+    String topic = (state.discovered ?: [:])[id]?.topic
+    boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(settings.apiKey && apiOnly(id))
+    items.each { Map item ->
+        if (live) conn.publishCommand(id, topic, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
+        else if (item.api) sendApi(id, cd.getDataValue("sku"), item.api as Map)
+    }
+}
+
+/** A LAN command was carried out. */
+void lanConfirmed(String id) {
+    if ((state.lanMisses ?: [:])[id]) {
+        Map misses = state.lanMisses
+        misses.remove(id)
+        state.lanMisses = misses
     }
 }
 

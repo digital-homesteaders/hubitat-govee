@@ -147,10 +147,13 @@ abstract class HubitatScript extends Script {
 
     // ---- WebSocket and MQTT (drivers)
     FakeMqtt mqtt
-    Map getInterfaces() {
+    FakeInterfaces ifaces
+    FakeInterfaces getInterfaces() {
         if (mqtt == null) mqtt = new FakeMqtt(calls: calls)
-        [webSocket: new FakeWebSocket(calls: calls), mqtt: mqtt]
+        if (ifaces == null) ifaces = new FakeInterfaces(calls: calls, mqtt: mqtt, webSocket: new FakeWebSocket(calls: calls))
+        return ifaces
     }
+    void sendHubCommand(def action) { calls << ["sendHubCommand", action] }
 
     // ---- events (drivers)
     void sendEvent(Map e) { device.applyEvent(e) }
@@ -203,6 +206,29 @@ class FakeWebSocket {
     void connect(String url) { calls << ["ws.connect", url, [:]] }
     void close() { calls << ["ws.close"] }
     void sendMessage(String msg) { calls << ["ws.send", msg] }
+}
+
+class FakeInterfaces {
+    List calls
+    FakeMqtt mqtt
+    FakeWebSocket webSocket
+    Map<String, FakeMulticastSocket> sockets = [:]
+    FakeMulticastSocket getMulticastSocket(String group, int port) {
+        String k = "${group}:${port}"
+        if (!sockets[k]) sockets[k] = new FakeMulticastSocket(calls: calls, group: group, port: port)
+        return sockets[k]
+    }
+}
+
+class FakeMulticastSocket {
+    List calls
+    String group
+    int port
+    boolean connected
+    void connect() { connected = true; calls << ["socket.connect", port] }
+    void close() { connected = false; calls << ["socket.close", port] }
+    void sendMessage(String hex) { calls << ["socket.send", port, new String(hex.decodeHex(), "UTF-8")] }
+    boolean isConnected() { connected }
 }
 
 class FakeMqtt {

@@ -7,6 +7,17 @@ for every device: changes you make in the Govee app, with a Govee button or on a
 schedule show up in Hubitat within about a second, and Hubitat's commands go out the
 same way.
 
+**LAN control:** lights with *LAN Control* turned on in the Govee Home app (device >
+settings) are found by a scan every 5 minutes, and their power, brightness, colour and
+colour temperature then go straight to the light on your network. Each command is
+checked with a status read right after it. A light that doesn't confirm gets the
+command through the cloud instead, and after two misses in a row LAN is paused for it
+for an hour. Turn this off under "Local control" on the app page.
+
+**Scenes:** with the API key, each light's Govee scenes and DIY scenes appear as
+Hubitat light effects. `lightEffects` lists them by number, and **Set Effect**, next and
+previous switch between them. They go through Govee's cloud API for now.
+
 An optional **Govee API key** adds the official Platform API, for:
 - fan speed, mode and oscillation (the live connection only reports a fan's power)
 - devices that don't answer on the live connection (seen: H605B, H6095)
@@ -39,10 +50,10 @@ your password: that's dropped as soon as the sign-in finishes.
 
 | Kind | Driver | Live (MQTT) | Needs API key |
 |---|---|---|---|
-| Lights, strips, lamps, bars | Govee Light | on/off, level, RGB, colour temperature, online | for devices that don't report live |
+| Lights, strips, lamps, bars | Govee Light | on/off, level, RGB, colour temperature, online (over LAN when available) | scenes; devices that don't report live |
 | Fans (H710x, H711x) | Govee Fan | on/off | speed level 1-8, mode, oscillation |
 
-Not yet: scenes, per-segment colour, LAN control, Matter linking, sensors and other
+Not yet: scenes over LAN, per-segment colour, Matter linking, sensors and other
 appliances. See [`../govee-research/DESIGN.md`](../govee-research/DESIGN.md) for the plan.
 
 ## How it works
@@ -93,4 +104,6 @@ Not yet tried on the hub:
 - [ ] The API fallback after an unconfirmed command
 - [x] H7101 fan (2026-10-17): on/off, speed levels 1-8, Auto/Sleep/Nature/FanSpeed, oscillation
 - [ ] H7111 fan
+- [ ] LAN (0.2.0): scan finds the H60B0s, H6022 and H619C; commands confirmed by devStatus
+- [ ] Scenes (0.2.0): lightEffects filled for each light; Set Effect works
 - [ ] Reconnect after a hub reboot and after a network drop

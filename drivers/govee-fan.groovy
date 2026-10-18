@@ -9,7 +9,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.1.7"
+@Field static final String DRIVER_VERSION = "0.2.0"
 
 // Govee tower fans have 8 speed steps; the dropdowns can't vary per device.
 @Field static final List SPEED_LEVELS = ["1", "2", "3", "4", "5", "6", "7", "8"]
@@ -28,7 +28,7 @@ metadata {
         attribute "supportedModes", "JSON_OBJECT"
         attribute "oscillation", "enum", ["on", "off"]
         attribute "healthStatus", "enum", ["online", "offline"]
-        attribute "transport", "enum", ["iot", "api"]
+        attribute "transport", "enum", ["lan", "iot", "api"]
 
         command "setSpeedLevel", [[name: "Speed level*", type: "ENUM", description: "Fan step as in the Govee app (a fan with fewer steps uses its top one)", constraints: SPEED_LEVELS]]
         command "setMode", [[name: "Mode*", type: "ENUM", description: "Govee fan mode (supportedModes lists this fan's)", constraints: FAN_MODES]]

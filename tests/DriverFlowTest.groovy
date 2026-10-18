@@ -138,7 +138,8 @@ check("Done creates the devices and the connection, which connects with the conv
     assert m.connectOpts.privateKey.trim() == new File(root, "tests/fixtures/key8.pem").text.trim()
     assert m.connectOpts.caCertificate.contains("BEGIN CERTIFICATE") && m.connectOpts.tlsVersion == "1.2"
     assert conn().currentValue("connection") == "connecting"
-    assert conn().driver.callsNamed("runIn").last()[2] == "afterConnect"
+    assert conn().driver.callsNamed("runIn").any { it[2] == "afterConnect" }
+    assert conn().driver.callsNamed("socket.connect")*.getAt(1) as Set == [4001, 4002] as Set, "LAN sockets open"
 }
 
 check("Done records each driver's version; the app page names any mismatch") {
@@ -363,6 +364,79 @@ check("scenes: fetched per light, numbered as light effects, set over the API") 
     assert app.callsNamed("asynchttpPost").size() == posts
 }
 
+String lanEvent(String ip, Map msg) {
+    JsonOutput.toJson([fromIp: ip, payload: JsonOutput.toJson([msg: msg]).getBytes("UTF-8").encodeHex().toString()])
+}
+List hubActions(int from = 0) { conn().driver.callsNamed("sendHubCommand").drop(from).collect { [it[1].options.destinationAddress, new JsonSlurper().parseText(it[1].action).msg] } }
+
+check("LAN: a scan finds the lamp; our own scan echo is ignored") {
+    app.state.remove("iotMisses"); app.state.remove("apiOnly")
+    conn().scanLan()
+    List sent = conn().driver.callsNamed("socket.send").last()
+    assert sent[1] == 4001 && new JsonSlurper().parseText(sent[2]) == [msg: [cmd: "scan", data: [account_topic: "reserve"]]]
+    conn().parse(lanEvent("192.168.1.9", [cmd: "scan", data: [account_topic: "reserve"]]))
+    assert !app.state.lan
+    conn().parse(lanEvent("192.168.1.50", [cmd: "scan", data: [ip: "192.168.1.50", device: LAMP, sku: "H6052", bleVersionHard: "3.01.01"]]))
+    hub.settle()
+    assert app.state.lan[LAMP].ip == "192.168.1.50" && lamp().getDataValue("lanIp") == "192.168.1.50"
+    assert app.lanUsable(LAMP) && app.log.lines.any { it[1].contains("found on the LAN at 192.168.1.50") }
+}
+
+check("LAN: commands go to the lamp directly and a devStatus read confirms them") {
+    int from = pubCount()
+    int acts = conn().driver.callsNamed("sendHubCommand").size()
+    lamp().on()
+    lamp().setColorTemperature(3000)
+    hub.settle()
+    assert pubCount() == from, "nothing over MQTT"
+    List a = hubActions(acts)
+    assert a[0] == ["192.168.1.50:4003", [cmd: "turn", data: [value: 1]]]
+    assert a[1] == ["192.168.1.50:4003", [cmd: "colorwc", data: [color: [r: 0, g: 0, b: 0], colorTemInKelvin: 3000]]]
+    assert conn().driver.callsNamed("runInMillis").last()[2] == "lanConfirm"
+    conn().lanConfirm()
+    assert hubActions(acts).last() == ["192.168.1.50:4003", [cmd: "devStatus", data: [:]]]
+    conn().parse(lanEvent("192.168.1.50", [cmd: "devStatus", data: [onOff: 1, brightness: 40, color: [r: 0, g: 0, b: 0], colorTemInKelvin: 3000]]))
+    hub.settle()
+    assert lamp().currentValue("transport") == "lan" && lamp().currentValue("colorTemperature") == 3000
+    int posts = app.callsNamed("asynchttpPost").size()
+    hub.advance(7000)
+    conn().checkPending()
+    assert app.callsNamed("asynchttpPost").size() == posts && pubCount() == from, "confirmed: nothing resent"
+}
+
+check("LAN: a devStatus that contradicts the command sends it through the cloud at once") {
+    int from = pubCount()
+    lamp().off()
+    hub.settle()
+    conn().lanConfirm()
+    conn().parse(lanEvent("192.168.1.50", [cmd: "devStatus", data: [onOff: 1, brightness: 40]]))
+    hub.settle()
+    List p = published(from)
+    assert p.size() == 1 && new JsonSlurper().parseText(p[0][2]).msg.cmd == "turn", "fell back to MQTT"
+    assert lamp().currentValue("switch") == "off", "the stale on is held back"
+    assert app.state.lanMisses[LAMP] == 1 && app.lanUsable(LAMP)
+}
+
+check("LAN: two misses in a row pause LAN for the lamp for an hour") {
+    lamp().on()
+    hub.settle()
+    hub.advance(7000)
+    conn().checkPending()
+    hub.settle()
+    assert !app.lanUsable(LAMP) && app.log.lines.any { it[1].contains("isn't answering on the LAN") }
+    int acts = conn().driver.callsNamed("sendHubCommand").size()
+    int from = pubCount()
+    lamp().off()
+    hub.settle()
+    assert conn().driver.callsNamed("sendHubCommand").size() == acts && pubCount() == from + 1
+    hub.advance(3600 * 1000L + 1000)
+    conn().parse(lanEvent("192.168.1.50", [cmd: "scan", data: [ip: "192.168.1.50", device: LAMP, sku: "H6052"]]))
+    hub.settle()
+    assert app.lanUsable(LAMP), "LAN is used again after the hour, once a scan sees it"
+    app.state.remove("lan")
+    app.state.remove("lanOff")
+}
+
 check("fan: power over MQTT; speed, mode and oscillation over the API") {
     int from = pubCount()
     fan().on()
@@ -396,6 +470,7 @@ check("fan: an MQTT power report triggers an API read, which fills in speed") {
 }
 
 check("polling reads fans and quiet devices, not lights that report over MQTT") {
+    app.noteIot(LAMP, hub.scripts[0].now())
     int posts = app.callsNamed("asynchttpPost").size()
     app.pollQuiet()
     List ids = app.callsNamed("asynchttpPost").drop(posts).collect { bodyOf(it).payload.device }

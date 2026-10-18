@@ -11,7 +11,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.1.7"
+@Field static final String DRIVER_VERSION = "0.2.0"
 
 metadata {
     definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", importUrl: "") {
@@ -27,7 +27,7 @@ metadata {
 
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "goveeMode", "string"
-        attribute "transport", "enum", ["iot", "api"]
+        attribute "transport", "enum", ["lan", "iot", "api"]
     }
     preferences {
         input "txtEnable", "bool", title: "Description text logging", defaultValue: true
