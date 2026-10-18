@@ -113,7 +113,9 @@ Not yet tried on the hub:
 - [ ] H7111 fan
 - [x] LAN (0.2.0, 2026-10-17): Living Room H60B0 controlled locally, "super fast"
 - [ ] LAN on the other H60B0, H6022 and H619C
-- [ ] Scenes over LAN: 0.3.0 sent H60B0 scenes in the wrong encoding (the lamp went dark).
+- [x] Scenes and rapid on/off on the Living Room H60B0 (2026-10-17): stays correct and lit
+- [ ] LAN scenes on the H6022 (per-model rule) and H619C (default rule)
+- [x] Scenes over LAN: 0.3.0 sent H60B0 scenes in the wrong encoding (the lamp went dark).
       Fixed: per-model rules; H60B0 type-6 scenes now use the API, and its 17 code-only scenes the LAN.
       H6022 frames match AlgoClaw on all 91 scenes, H6072 on all 69.
 - [x] Scenes (0.2.0, 2026-10-17): 114 scenes + DIY on the H60B0; Set Effect, Next/Previous,
