@@ -1,0 +1,128 @@
+[
+ {
+  "sku": "H6022",
+  "name": "Sunrise",
+  "code": 8478,
+  "param": "QQEBAWQAAasAA50ABhI6hv8AAQIDBAUGBwgJCgsMDhASFBYY+K2dDQ8RExUXGBkaGxwdHh8gISIjJCYoKiwuMP++CyUnKSstLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RWWFpcXgb/fwBVV1lbXV8S+1YHYGFiY2RlZmdoaWprbG5wcnR2Ev8AAG1vcXN1d3h5ent8fX5/gIGCg0tkAwAB//8AAAAA",
+  "sceneType": 5,
+  "expected": [
+   "owABC1haAQEBZAABqwADnQAGEu4=",
+   "owE6hv8AAQIDBAUGBwgJCgsMDuM=",
+   "owIQEhQWGPitnQ0PERMVFxgZGmg=",
+   "owMbHB0eHyAhIiMkJigqLC4w/3Y=",
+   "owS+CyUnKSstLzAxMjM0NTY3OCg=",
+   "owU5Ojs8PT4/QEFCQ0RFRkdISZ8=",
+   "owZKS0xNTk9QUVJTVFZYWlxeBqA=",
+   "owf/fwBVV1lbXV8S+1YHYGFiY54=",
+   "owhkZWZnaGlqa2xucHJ0dhL/AEQ=",
+   "owkAbW9xc3V3eHl6e3x9fn+Agak=",
+   "o/+Cg0tkAwAB//8AAAAAAAAAAHA=",
+   "MwUEHiEAAAAAAAAAAAAAAAAAAA0="
+  ],
+  "source": "AlgoClaw"
+ },
+ {
+  "sku": "H6022",
+  "name": "Rainbow",
+  "code": 42,
+  "param": "",
+  "sceneType": 0,
+  "expected": [
+   "MwUEKgAAAAAAAAAAAAAAAAAAABg="
+  ],
+  "source": "AlgoClaw"
+ },
+ {
+  "sku": "H6022",
+  "name": "Breathe",
+  "code": 8505,
+  "param": "AAUAIxgAlhTd3wDj5Rb/qwD3eXbYg/+TNv06hv8=",
+  "sceneType": 5,
+  "expected": [
+   "owABAgQFACMYAJYU3d8A4+UW//U=",
+   "o/+rAPd5dtiD/5M2/TqG/wAAALA=",
+   "MwUEOSEAAAAAAAAAAAAAAAAAACo="
+  ],
+  "source": "AlgoClaw"
+ },
+ {
+  "sku": "H6072",
+  "name": "Sunrise",
+  "code": 2099,
+  "param": "AxoUAAABAAH//wAAAAAA/zIB//8AAAAAAAAAA0dQAAAQAAH//wAAAAAC+xQQ/38A/38A/wAA/wAA/xYA/xYA/wAA/38A/38A//8A//8A//8A//8A//8A//8A//8AAAAAAAAAAiBkAAABAAH//wAA//8CADIDBoH+B7T/AAD/AAAAAAAAAQ==",
+  "sceneType": 2,
+  "expected": [
+   "owABCAIDGhQAAAEAAf//AAAAAKU=",
+   "owEA/zIB//8AAAAAAAAAA0dQAHo=",
+   "owIAEAAB//8AAAAAAvsUEP9/AM0=",
+   "owP/fwD/AAD/AAD/FgD/FgD/AN8=",
+   "owQA/38A/38A//8A//8A//8A/1g=",
+   "owX/AP//AP//AP//AAAAAAAAAFk=",
+   "owYCIGQAAAEAAf//AAD//wIAMtM=",
+   "o/8DBoH+B7T/AAD/AAAAAAAAAZQ=",
+   "MwUEMwgAAAAAAAAAAAAAAAAAAAk="
+  ],
+  "source": "AlgoClaw"
+ },
+ {
+  "sku": "H6072",
+  "name": "Ocean",
+  "code": 32,
+  "param": "",
+  "sceneType": 0,
+  "expected": [
+   "MwUEIAAAAAAAAAAAAAAAAAAAABI="
+  ],
+  "source": "AlgoClaw"
+ },
+ {
+  "sku": "H6072",
+  "name": "Rainbow B",
+  "code": 10191,
+  "param": "ASkAAAAHAgH/gQD5FBQD+RQG/wAA/38A//8AAP8AAP//AAD/EADyAACAAA==",
+  "sceneType": 2,
+  "expected": [
+   "owABAwIBKQAAAAcCAf+BAPkUFAg=",
+   "owED+RQG/wAA/38A//8AAP8AAMo=",
+   "o////wAA/xAA8gAAgAAAAAAAAME=",
+   "MwUEzycAAAAAAAAAAAAAAAAAANo="
+  ],
+  "source": "AlgoClaw"
+ },
+ {
+  "sku": "H6072",
+  "name": "Karst Cave",
+  "code": 2103,
+  "param": "AikAAAABAAH/mAOaCgoCyBQGvQD/AAD//wAA/38AAP8AAP//AAH6AAAAAB0AAgoBAAH//wCgFBQAgBQC////////AACAAACAAA==",
+  "sceneType": 2,
+  "expected": [
+   "owABBQICKQAAAAEAAf+YA5oKCnA=",
+   "owECyBQGvQD/AAD//wAA/38AALg=",
+   "owL/AAD//wAB+gAAAAAdAAIKAbE=",
+   "owMAAf//AKAUFACAFAL//////2g=",
+   "o///AACAAACAAAAAAAAAAAAAAKM=",
+   "MwUENwgAAAAAAAAAAAAAAAAAAA0="
+  ],
+  "source": "AlgoClaw"
+ },
+ {
+  "sku": "H60B0",
+  "name": "Dracarys",
+  "code": 16188,
+  "param": "UQBLCgIfAAAAAQIB/wADAAAAAPwyAf8TAxEA7QAAAAAAAgAB/ygAAgMBAAG+PwPKFBQC/woE/8gJ/3UA/8AA/0sAAAD/AAD/AAACAAH/ABoCDQEAATIyATIAAQH/RgcKAQABMjIBMgABAA==",
+  "sceneType": 6,
+  "expected": null,
+  "source": "no rule: API"
+ },
+ {
+  "sku": "H60B0",
+  "name": "Rainbow",
+  "code": 3,
+  "param": "",
+  "sceneType": 0,
+  "expected": [
+   "MwUEAwAAAAAAAAAAAAAAAAAAADE="
+  ],
+  "source": "code only"
+ }
+]

@@ -148,10 +148,18 @@ a3 ff 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5c
     assert got == expected
 }
 
-check("scene frames with no parameters: one header line, then the code") {
+check("a scene with no parameter data is just the code line") {
     List got = app.sceneFrames(0x0833, "").collect { it.decodeBase64().encodeHex().toString() }
-    assert got.size() == 2 && got[0].startsWith("a3ff0101020000") && got[1].startsWith("33050433080000")
-    got.each { assert it.length() == 40 }
+    assert got == ["3305043308000000000000000000000000000009"]
+}
+
+check("per-model scene rules match AlgoClaw's published frames; unknown families use the API") {
+    List cases = new JsonSlurper().parseText(new File(root, "tests/fixtures/scene-rules.json").text)
+    assert cases.size() >= 8
+    cases.each { Map c ->
+        List got = app.lanSceneFrames(c.sku, [c.code, c.param, c.sceneType])
+        assert got == c.expected, "${c.sku} ${c.name} (${c.source})"
+    }
 }
 
 check("scene library lookups by the API's scene value") {

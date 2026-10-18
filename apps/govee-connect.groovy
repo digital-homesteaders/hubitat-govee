@@ -82,6 +82,24 @@ preferences {
 // reboot or code save, the first time a lamp of that model is seen on the LAN.
 @Field static final ConcurrentHashMap<String, Map> SCENE_LIB = new ConcurrentHashMap<>()
 @Field static final ConcurrentHashMap<String, Long> LIB_FETCHING = new ConcurrentHashMap<>()
+// How each model expects a scene's parameter data, from AlgoClaw's decoding of
+// the Govee app (github.com/AlgoClaw/Govee, model_specific_parameters.json; facts
+// only, re-implemented here). Each rule is [hex to strip from the start of the
+// data, hex to put in its place, hex after the scene code]; the first rule whose
+// prefix matches is used. Models not listed use the default rule, but only for
+// scene types 0-4, the family it's verified on: newer families (e.g. the H60B0's
+// type 6) need a rule nobody has published, so those scenes use the API.
+@Field static final Map SCENE_RULES = [
+    H6022: [["41", "585a", ""], ["00", "04", ""]],
+    H6052: [["0111", "07", ""]],
+    H6065: [["12000c000f", "04", "0247"], ["1200000000", "04", "0047"]],
+    H6066: [["1200000000", "04", ""], ["1d", "", ""]],
+    H6092: [["21", "560b", ""]],
+    H610A: [],
+    H6079: [],
+]
+@Field static final List DEFAULT_SCENE_RULE = ["", "02", ""]
+@Field static final int DEFAULT_RULE_MAX_TYPE = 4
 @Field static final Map POLL_CHOICES = ["2": "2 minutes", "5": "5 minutes", "10": "10 minutes", "15": "15 minutes", "30": "30 minutes"]
 
 // Govee device types (Platform API `type`) and the kind of child each becomes.
@@ -937,10 +955,11 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
     plan.send.each { Map item ->
         List lib = (item.api?.instance == "lightScene" && ip) ? libraryScene(sku, item.api.value) : null
         if (item.api?.instance == "lightScene" && ip && !lib) ensureLibrary(sku)
-        if (lib) {
+        List frames = lib ? lanSceneFrames(sku, lib) : null
+        if (frames) {
             // A scene over the LAN: turn the light on first if it's off.
             if (s?.onOff != 1) conn.publishLan(id, ip, "turn", [val: 1], power(1).api as Map, [onOff: 1])
-            conn.publishLanFrames(id, ip, sceneFrames(lib[0] as int, lib[1] as String))
+            conn.publishLanFrames(id, ip, frames)
             logDebug "${cd.displayName}: scene over the LAN (code ${lib[0]})"
         } else if (item.via == "iot" && ip) {
             conn.publishLan(id, ip, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
@@ -1065,7 +1084,7 @@ Map sceneLibrary(List categories) {
             (sc.lightEffects ?: []).each { Map e ->
                 int code = (e.sceneCode ?: 0) as int
                 if (!code) return
-                List entry = [code, (e.scenceParam ?: "") as String]
+                List entry = [code, (e.scenceParam ?: "") as String, (e.sceneType ?: sc.sceneType ?: 0) as int]
                 if (e.scenceParamId != null) byParam[e.scenceParamId.toString()] = entry
                 if (sc.sceneId != null && !byScene.containsKey(sc.sceneId.toString())) byScene[sc.sceneId.toString()] = entry
             }
@@ -1082,30 +1101,70 @@ List libraryScene(String sku, def value) {
 }
 
 /**
- * The ptReal frames that start a scene (base64, 20 bytes each): the scene's
- * parameters in numbered a3 lines, then 33 05 04 <code>. Each line is padded
- * to 19 bytes and ends with an XOR checksum. Ported from govee2mqtt (SetSceneCode).
+ * The ptReal frames for a library scene [code, param, sceneType] on this
+ * model, or null when the scene should go through the API instead.
  */
-List sceneFrames(int code, String paramB64) {
-    byte[] param = (paramB64 ?: "").decodeBase64()
-    List<Integer> data = [0xa3, 0x00, 0x01, 0x00, 0x02]
+List lanSceneFrames(String sku, List scene) {
+    int code = scene[0] as int
+    String param = (scene[1] ?: "") as String
+    // No parameter data: the scene code alone switches the scene.
+    if (!param) return sceneFrames(code, "", null)
+    String hex = param.decodeBase64().encodeHex().toString()
+    List rules = SCENE_RULES[sku] as List
+    if (rules == null) {
+        int type = ((scene.size() > 2 ? scene[2] : 0) ?: 0) as int
+        if (type > DEFAULT_RULE_MAX_TYPE) return null
+        rules = [DEFAULT_SCENE_RULE]
+    }
+    List rule = rules.find { hex.startsWith(it[0] as String) } as List
+    // A model with rules but none matching: the data goes as it is.
+    return sceneFrames(code, param, rule ?: ["", "", ""])
+}
+
+/**
+ * The ptReal frames that start a scene (base64, 20 bytes each): the scene's
+ * parameter data in numbered a3 lines, then 33 05 04 <code>. Each line is
+ * padded to 19 bytes and ends with an XOR checksum. `rule` is [hex stripped
+ * from the start of the data, hex put before it, hex after the code]; null
+ * sends only the code line. Layout from govee2mqtt (SetSceneCode) and AlgoClaw.
+ */
+List sceneFrames(int code, String paramB64, List rule = ["", "02", ""]) {
+    List frames = []
+    if (rule != null && paramB64) {
+        String hex = (paramB64 as String).decodeBase64().encodeHex().toString()
+        String strip = (rule[0] ?: "") as String
+        if (strip && hex.startsWith(strip)) hex = hex.substring(strip.length())
+        frames.addAll(dataFrames(hexBytes((rule[1] ?: "") as String) + hexBytes(hex)))
+    }
+    frames << finishFrame([0x33, 0x05, 0x04, code & 0xff, (code >> 8) & 0xff] + hexBytes(rule ? (rule[2] ?: "") as String : ""))
+    return frames
+}
+
+private List<Integer> hexBytes(String hex) {
+    List<Integer> out = []
+    for (int i = 0; i + 1 < hex.length(); i += 2) out << Integer.parseInt(hex.substring(i, i + 2), 16)
+    return out
+}
+
+/** The numbered a3 lines carrying a scene's data (the header line holds the line count). */
+private List dataFrames(List<Integer> payload) {
+    List<Integer> data = [0xa3, 0x00, 0x01, 0x00]
     int lines = 0
     int lastMarker = 1
-    for (int i = 0; i < param.length; i++) {
+    for (int i = 0; i < payload.size(); i++) {
         if (data.size() % 19 == 0) {
             lines++
             data << 0xa3
             lastMarker = data.size()
             data << lines
         }
-        data << (param[i] & 0xff)
+        data << payload[i]
     }
     // The last line is marked 0xff instead of its number; the header carries the line count.
     data[lastMarker] = 0xff
     data[3] = lines + 1
     List frames = []
     for (int i = 0; i < data.size(); i += 19) frames << finishFrame(data.subList(i, Math.min(i + 19, data.size())))
-    frames << finishFrame([0x33, 0x05, 0x04, code & 0xff, (code >> 8) & 0xff])
     return frames
 }
 

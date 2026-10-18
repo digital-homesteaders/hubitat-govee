@@ -20,7 +20,10 @@ previous switch between them. On a light controlled over the LAN, Govee's own sc
 **locally**: the app fetches the model's scene library from Govee once (no sign-in
 needed) and sends the scene to the light as ptReal frames. DIY scenes, and scenes missing
 from the library, go through the API. A light doesn't report which scene is running, so
-LAN scenes can't be confirmed the way power and colour are.
+LAN scenes can't be confirmed the way power and colour are. Models encode scene data
+differently, so a scene goes over the LAN only when its model's encoding is known
+(per-model rules from AlgoClaw, checked against real data); others, such as most H60B0
+scenes, use the API.
 
 An optional **Govee API key** adds the official Platform API, for:
 - fan speed, mode and oscillation (the live connection only reports a fan's power)
@@ -110,7 +113,9 @@ Not yet tried on the hub:
 - [ ] H7111 fan
 - [x] LAN (0.2.0, 2026-10-17): Living Room H60B0 controlled locally, "super fast"
 - [ ] LAN on the other H60B0, H6022 and H619C
-- [ ] Scenes over LAN (0.3.0): frames match govee2mqtt byte for byte; untried on a real lamp
+- [ ] Scenes over LAN: 0.3.0 sent H60B0 scenes in the wrong encoding (the lamp went dark).
+      Fixed: per-model rules; H60B0 type-6 scenes now use the API, and its 17 code-only scenes the LAN.
+      H6022 frames match AlgoClaw on all 91 scenes, H6072 on all 69.
 - [x] Scenes (0.2.0, 2026-10-17): 114 scenes + DIY on the H60B0; Set Effect, Next/Previous,
       Set Scene by name, and favorites as the effect list all work
 - [ ] Reconnect after a hub reboot and after a network drop

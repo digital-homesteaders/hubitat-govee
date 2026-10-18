@@ -562,7 +562,7 @@ check("LAN scenes: a library scene goes to the lamp as ptReal frames; others use
     assert a[1][0] == "192.168.1.50:4003" && a[1][1].cmd == "ptReal"
     List frames = a[1][1].data.command
     assert frames.last().decodeBase64().encodeHex().toString().startsWith("3305043308"), "code 2099 = 0x0833"
-    assert frames == app.sceneFrames(2099, app.libraryScene("H6052", [paramId: 1681, id: 1606])[1])
+    assert frames == app.lanSceneFrames("H6052", app.libraryScene("H6052", [paramId: 1681, id: 1606]))
     assert app.callsNamed("asynchttpPost").size() == posts, "no API call"
     assert lamp().currentValue("effectName") == "Sunrise"
     mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]])

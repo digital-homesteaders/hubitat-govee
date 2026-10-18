@@ -31,4 +31,12 @@ both MIT licensed:
 - govee2mqtt, Copyright (c) 2024-Present Wez Furlong:
   https://github.com/wez/govee2mqtt
 
-tests/fixtures/api-devices.json is adapted from govee2mqtt's test data.
+Per-model scene encoding rules (which bytes each model expects before a
+scene's data) are protocol facts from AlgoClaw's decoding of the Govee app,
+https://github.com/AlgoClaw/Govee (no licence stated; no code copied: the
+rules are re-implemented in apps/govee-connect.groovy and checked against
+AlgoClaw's published frames, a few of which are in
+tests/fixtures/scene-rules.json).
+
+tests/fixtures/api-devices.json and scene-library-h6072.json are adapted from
+govee2mqtt's test data.
