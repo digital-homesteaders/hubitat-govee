@@ -676,6 +676,18 @@ check("a light's mode number: learned after a colour command, then shows scenes 
     assert app.state.lightModes[LAMP].plain == [] && app.state.lightModes[LAMP].scene == ["8"]
 }
 
+check("Set Color keeps the brightness unless the preference is off") {
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [brightness: 20, onOff: 1]])
+    lamp().setColor([hue: 0, saturation: 100, level: 100])
+    hub.settle()
+    assert lamp().currentValue("level") == 20 && lamp().currentValue("colorMode") == "RGB"
+    lamp().driver.settings.colorKeepsLevel = false
+    lamp().setColor([hue: 0, saturation: 100, level: 100])
+    hub.settle()
+    assert lamp().currentValue("level") == 100
+    lamp().driver.settings.colorKeepsLevel = true
+}
+
 check("an expired token: discovery says so, the live connection keeps going") {
     app.accountDevicesResp(resp(200, [status: 200, message: "token expired"]), [:])
     hub.settle()

@@ -69,7 +69,9 @@ your password: that's dropped as soon as the sign-in finishes.
 
 In Hubitat, brightness is the `level` attribute and the **Set Level** command (the
 standard names that dashboards, rules and voice assistants use); the logs say
-"brightness". The `transport` attribute shows how the device was last reached: `local`
+"brightness". **Set Color** keeps the current brightness by default, because Hubitat's
+colour picker sends 100% with every colour; turn off "Set Color keeps the current
+brightness" on the light to let colour commands set brightness too. The `transport` attribute shows how the device was last reached: `local`
 (LAN), `cloud-live` (Govee's live MQTT connection) or `cloud-api` (the Govee API).
 
 Not yet: per-segment colour, Matter linking, sensors and other

@@ -39,6 +39,7 @@ metadata {
     preferences {
         input "favoriteScenes", "enum", title: "Favorite scenes: Set Effect numbers, lightEffects and Next/Previous use just these (none = all)",
             options: sceneOptions(), multiple: true, required: false
+        input "colorKeepsLevel", "bool", title: "Set Color keeps the current brightness (the colour picker otherwise sets 100%)", defaultValue: true
         input "txtEnable", "bool", title: "Description text logging", defaultValue: true
         input "logEnable", "bool", title: "Debug logging", defaultValue: false
     }
@@ -67,7 +68,12 @@ def refresh() {
 def on() { sendGovee("on") }
 def off() { sendGovee("off") }
 def setLevel(level, duration = null) { sendGovee("setLevel", [level]) }
-def setColor(Map color) { sendGovee("setColor", [color]) }
+def setColor(Map color) {
+    // The colour picker sends a level with every colour; by default, leave brightness alone.
+    Map c = color ?: [:]
+    if (settings.colorKeepsLevel != false) c = c.findAll { it.key != "level" }
+    sendGovee("setColor", [c])
+}
 def setHue(hue) { sendGovee("setHue", [hue]) }
 def setSaturation(saturation) { sendGovee("setSaturation", [saturation]) }
 def setColorTemperature(temp, level = null, transitionTime = null) { sendGovee("setColorTemperature", [temp, level]) }
