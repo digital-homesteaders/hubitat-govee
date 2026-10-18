@@ -140,6 +140,15 @@ check("plan: fan speeds and modes go over the API") {
     assert plan("fan", [:], "setOscillation", ["on"], caps).send[0].api.instance == "oscillationToggle"
 }
 
+check("fan modes: FanSpeed goes back to the last step; other modes read as on or auto") {
+    Map caps = capsFor("H7111")
+    assert plan("fan", [workMode: 6, modeValue: 0, lastSpeed: 3], "setMode", ["FanSpeed"], caps).send[0].api.value == [workMode: 1, modeValue: 3]
+    assert plan("fan", [workMode: 6, modeValue: 0], "setMode", ["FanSpeed"], caps).send[0].api.value == [workMode: 1, modeValue: 4]
+    assert plan("fan", [:], "setSpeedLevel", [6], caps).optimistic.lastSpeed == 6
+    assert events("fan", [onOff: 1, workMode: 6, modeValue: 0], caps).speed == "on"
+    assert app.goveeEvents(dev("fan", caps), [onOff: 1, workMode: 1, modeValue: 5]).find { it.name == "speedLevel" }.descriptionText == "speed level is 5 of 8"
+}
+
 check("plan: fan speed without the API's capabilities is an error, power still works") {
     assert plan("fan", [:], "setSpeed", ["high"]).error && !plan("fan", [:], "setSpeed", ["high"]).send
     assert plan("fan", [onOff: 1], "setLevel", [50]).error

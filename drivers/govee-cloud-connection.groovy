@@ -39,7 +39,7 @@ metadata {
     }
 }
 
-@Field static final String DRIVER_VERSION = "0.1.6"
+@Field static final String DRIVER_VERSION = "0.1.7"
 @Field static final int CONNECT_WAIT_S = 5
 @Field static final long CONFIRM_QUERY_MS = 1500
 @Field static final int CONFIRM_TIMEOUT_S = 6

@@ -46,7 +46,7 @@ preferences {
 
 // Bump in every file on each change: drivers compare theirs with the app's and
 // log a warning when they differ (a file wasn't re-pasted).
-@Field static final String VERSION = "0.1.6"
+@Field static final String VERSION = "0.1.7"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -696,13 +696,14 @@ private List fanEvents(Map s, Map caps) {
     } else if (s.workMode != null && caps.speedMode != null && s.workMode == caps.speedMode && speeds) {
         int idx = speeds.indexOf(s.modeValue)
         if (idx >= 0) {
-            ev << [name: "speedLevel", value: idx + 1]
+            ev << [name: "speedLevel", value: idx + 1, descriptionText: "speed level is ${idx + 1} of ${speeds.size()}"]
             ev << [name: "level", value: levelForStep(idx + 1, speeds.size()), unit: "%"]
             ev << [name: "speed", value: speedNameFor(idx + 1, speeds.size())]
         }
     } else if (s.workMode != null && s.onOff == 1) {
+        // Other modes run their own speed: Hubitat's closest names are auto and on.
         def m = modes.find { it[1] == s.workMode }
-        if (m && m[0].toString().toLowerCase() == "auto") ev << [name: "speed", value: "auto"]
+        ev << [name: "speed", value: m && m[0].toString().toLowerCase() == "auto" ? "auto" : "on"]
     }
     if (s.oscillation != null) ev << [name: "oscillation", value: s.oscillation ? "on" : "off"]
     return ev
@@ -787,7 +788,7 @@ Map planCommand(def cd, Map s, String cmd, List args) {
             String name = args[0] as String
             if (name == "off") return planCommand(cd, s, "off", [])
             if (name == "on") return planCommand(cd, s, "on", [])
-            if (name == "auto") return planFanMode(caps, "auto")
+            if (name == "auto") return planFanMode(caps, s, "auto")
             int n = (caps.speeds ?: []).size()
             if (!n || caps.speedMode == null) return [send: [], optimistic: [:], error: "fan speeds need the Govee API key"]
             int step = stepForSpeedName(name, n)
@@ -800,7 +801,7 @@ Map planCommand(def cd, Map s, String cmd, List args) {
         case "setSpeedLevel":
             return planFanStep(caps, s, args[0] as int)
         case "setMode":
-            return planFanMode(caps, args[0] as String)
+            return planFanMode(caps, s, args[0] as String)
         case "setOscillation":
             int v = args[0].toString() == "on" ? 1 : 0
             send << [via: "api", api: [type: "devices.capabilities.toggle", instance: "oscillationToggle", value: v]]
@@ -827,12 +828,20 @@ private Map planFanStep(Map caps, Map s, int step) {
     if (!speeds || caps.speedMode == null) return [send: [], optimistic: [:], error: "fan speeds need the Govee API key"]
     step = clamp(step, 1, speeds.size())
     Map send = [via: "api", api: [type: "devices.capabilities.work_mode", instance: "workMode", value: [workMode: caps.speedMode, modeValue: speeds[step - 1]]]]
-    return [send: [send], optimistic: [onOff: 1, workMode: caps.speedMode, modeValue: speeds[step - 1]]]
+    return [send: [send], optimistic: [onOff: 1, workMode: caps.speedMode, modeValue: speeds[step - 1], lastSpeed: speeds[step - 1]]]
 }
 
-private Map planFanMode(Map caps, String name) {
+private Map planFanMode(Map caps, Map s, String name) {
     def m = (caps.modes ?: []).find { it[0].toString().equalsIgnoreCase(name) }
     if (!m) return [send: [], optimistic: [:], error: "this fan has no mode '${name}'"]
+    // The speed mode needs a step: go back to the last one used.
+    if (m[1] == caps.speedMode) {
+        List speeds = caps.speeds ?: []
+        int step = speeds.indexOf(s.lastSpeed) + 1
+        if (step < 1) step = speeds.indexOf(s.modeValue) + 1
+        if (step < 1) step = Math.max(1, (int) Math.ceil(speeds.size() / 2d))
+        return planFanStep(caps, s, step)
+    }
     Map send = [via: "api", api: [type: "devices.capabilities.work_mode", instance: "workMode", value: [workMode: m[1], modeValue: 0]]]
     return [send: [send], optimistic: [onOff: 1, workMode: m[1], modeValue: 0]]
 }

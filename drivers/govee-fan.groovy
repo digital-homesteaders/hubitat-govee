@@ -9,7 +9,11 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.1.6"
+@Field static final String DRIVER_VERSION = "0.1.7"
+
+// Govee tower fans have 8 speed steps; the dropdowns can't vary per device.
+@Field static final List SPEED_LEVELS = ["1", "2", "3", "4", "5", "6", "7", "8"]
+@Field static final List FAN_MODES = ["FanSpeed", "Auto", "Sleep", "Nature", "Storm", "Custom"]
 
 metadata {
     definition(name: "Govee Fan", namespace: "govee", author: "Digital Homesteaders", importUrl: "") {
@@ -27,8 +31,8 @@ metadata {
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "transport", "enum", ["iot", "api"]
 
-        command "setSpeedLevel", [[name: "Speed level*", type: "NUMBER", description: "Fan step, 1 to maxSpeedLevel (0 = off)"]]
-        command "setMode", [[name: "Mode*", type: "STRING", description: "One of supportedModes, e.g. Auto, Sleep, Nature"]]
+        command "setSpeedLevel", [[name: "Speed level*", type: "ENUM", description: "Fan step as in the Govee app (a fan with fewer steps uses its top one)", constraints: SPEED_LEVELS]]
+        command "setMode", [[name: "Mode*", type: "ENUM", description: "Govee fan mode (supportedModes lists this fan's)", constraints: FAN_MODES]]
         command "setOscillation", [[name: "Oscillation*", type: "ENUM", constraints: ["on", "off"]]]
     }
     preferences {
@@ -60,7 +64,7 @@ def off() { sendGovee("off") }
 def setSpeed(speed) { sendGovee("setSpeed", [speed]) }
 def cycleSpeed() { sendGovee("cycleSpeed") }
 def setLevel(level, duration = null) { sendGovee("setLevel", [level]) }
-def setSpeedLevel(level) { sendGovee("setSpeedLevel", [level]) }
+def setSpeedLevel(level) { sendGovee("setSpeedLevel", [level as int]) }
 def setMode(mode) { sendGovee("setMode", [mode]) }
 def setOscillation(value) { sendGovee("setOscillation", [value]) }
 
@@ -93,8 +97,8 @@ private void applyState() {
 private void emit(Map e) {
     boolean same = device.currentValue(e.name)?.toString() == e.value?.toString()
     if (same && !e.isStateChange) return
-    if (txtEnable && e.name in ["switch", "speed", "mode", "oscillation", "healthStatus"]) {
-        e.descriptionText = "${device.displayName} ${e.name} is ${e.value}${e.unit ?: ''}"
+    if (txtEnable && e.name in ["switch", "speed", "speedLevel", "mode", "oscillation", "healthStatus"]) {
+        e.descriptionText = "${device.displayName} ${e.descriptionText ?: e.name + ' is ' + e.value + (e.unit ?: '')}"
         log.info e.descriptionText
     }
     sendEvent(e)

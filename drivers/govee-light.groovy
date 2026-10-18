@@ -11,7 +11,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.1.6"
+@Field static final String DRIVER_VERSION = "0.1.7"
 
 metadata {
     definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", importUrl: "") {
