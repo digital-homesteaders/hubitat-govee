@@ -279,6 +279,8 @@ check("after two misses in a row, the device's commands go straight to the API")
 }
 
 check("a matching report confirms and clears the misses; a dragged slider confirms on its last value") {
+    app.state.remove("apiOnly")
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]])
     app.state.iotMisses = [(LAMP): 1]
     int from = pubCount()
     lamp().setLevel(20)
