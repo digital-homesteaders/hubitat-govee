@@ -24,6 +24,7 @@
 import groovy.json.JsonOutput
 import groovy.transform.Field
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 definition(
     name: "Govee Connect",
@@ -56,6 +57,10 @@ preferences {
 @Field static final long DISCOVERY_MAX_AGE_MS = 24 * 3600 * 1000L
 // A device with no MQTT message for this long is read over the Platform API instead.
 @Field static final long QUIET_MS = 10 * 60 * 1000L
+// When each device last reported over MQTT, by device id. Kept in memory, not
+// in device data: a write per message is wasteful and races device creation.
+// Lost on reboot, which only means one extra API read per device.
+@Field static final ConcurrentHashMap<String, Long> LAST_IOT = new ConcurrentHashMap<>()
 @Field static final Map POLL_CHOICES = ["2": "2 minutes", "5": "5 minutes", "10": "10 minutes", "15": "15 minutes", "30": "30 minutes"]
 
 // Govee device types (Platform API `type`) and the kind of child each becomes.
@@ -558,6 +563,7 @@ void iotMessage(Map msg) {
     String id = msg.device
     def cd = deviceById(id)
     if (!cd) return
+    noteIot(id, now())
     Map s = normalizeIot(msg.state instanceof Map ? msg.state : [:])
     if (!s) {
         cd.goveeSeen("iot")
@@ -567,6 +573,8 @@ void iotMessage(Map msg) {
     // Fans report only power over MQTT: read speed and mode once power changes.
     if (cd.getDataValue("kind") == "fan" && s.containsKey("onOff") && settings.apiKey) runIn(2, "refreshDevice", [data: [id: id], overwrite: false])
 }
+
+void noteIot(String id, long at) { if (id) LAST_IOT.put(id, at) }
 
 /** MQTT state -> the app's state keys. */
 Map normalizeIot(Map st) {
@@ -862,8 +870,7 @@ void pollQuiet() {
     if (!settings.apiKey) return
     long cutoff = now() - QUIET_MS
     getGoveeDevices().each { cd ->
-        String lastText = cd.getDataValue("lastIot")
-        Long last = lastText ? (lastText as Long) : null
+        Long last = LAST_IOT.get(cd.getDataValue("id"))
         boolean quiet = !last || last < cutoff
         if (quiet || cd.getDataValue("kind") == "fan") refreshDevice([id: cd.getDataValue("id")])
     }

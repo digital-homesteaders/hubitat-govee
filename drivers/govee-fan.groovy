@@ -71,7 +71,6 @@ void goveeUpdate(Map reported, String source) {
 }
 
 void goveeSeen(String source) {
-    if (source == "iot") device.updateDataValue("lastIot", now().toString())
     if (device.currentValue("transport") != source) sendEvent(name: "transport", value: source)
 }
 

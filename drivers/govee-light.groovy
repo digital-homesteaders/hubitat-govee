@@ -70,7 +70,6 @@ void goveeUpdate(Map reported, String source) {
 
 /** Any sign of life from the device, even a message without state. */
 void goveeSeen(String source) {
-    if (source == "iot") device.updateDataValue("lastIot", now().toString())
     if (device.currentValue("transport") != source) sendEvent(name: "transport", value: source)
 }
 

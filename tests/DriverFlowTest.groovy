@@ -167,7 +167,7 @@ check("a pushed report updates the light") {
     FakeDevice l = lamp()
     assert l.currentValue("switch") == "on" && l.currentValue("level") == 3 && l.currentValue("colorMode") == "RGB"
     assert l.currentValue("hue") == 67 && l.currentValue("healthStatus") == "online" && l.currentValue("transport") == "iot"
-    assert l.getDataValue("lastIot")
+    assert !l.getDataValue("lastIot"), "no device-data write per message"
     mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [connected: "false", onOff: 0]]])
     assert l.currentValue("healthStatus") == "offline" && l.currentValue("switch") == "off"
 }
@@ -257,7 +257,7 @@ check("polling reads fans and quiet devices, not lights that report over MQTT") 
     app.pollQuiet()
     List ids = app.callsNamed("asynchttpPost").drop(posts).collect { bodyOf(it).payload.device }
     assert ids == [FAN]
-    lamp().updateDataValue("lastIot", (hub.scripts[0].now() - 11 * 60 * 1000L).toString())
+    app.noteIot(LAMP, hub.scripts[0].now() - 11 * 60 * 1000L)
     posts = app.callsNamed("asynchttpPost").size()
     app.pollQuiet()
     ids = app.callsNamed("asynchttpPost").drop(posts).collect { bodyOf(it).payload.device }
