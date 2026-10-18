@@ -84,7 +84,7 @@ check("fan events: speed step, named speed, level, mode, oscillation") {
     Map caps = capsFor("H7111")
     Map e = events("fan", [onOff: 1, workMode: 1, modeValue: 8, oscillation: 1], caps)
     assert e.speed == "high" && e.speedLevel == 8 && !e.containsKey("level") && e.maxSpeedLevel == 8
-    assert e.mode == "FanSpeed" && e.oscillation == "on"
+    assert e.mode == "Fixed speed" && e.oscillation == "on"
     assert new JsonSlurper().parseText(e.supportedFanSpeeds) == ["low", "medium-low", "medium", "medium-high", "high", "auto", "off", "on"]
     assert events("fan", [onOff: 1, workMode: 1, modeValue: 1], caps).speed == "low"
     assert events("fan", [onOff: 1, workMode: 1, modeValue: 4], caps).speed == "medium"
@@ -199,6 +199,7 @@ check("fan modes: FanSpeed goes back to the last step; other modes read as on or
     Map caps = capsFor("H7111")
     assert plan("fan", [workMode: 6, modeValue: 0, lastSpeed: 3], "setMode", ["FanSpeed"], caps).send[0].api.value == [workMode: 1, modeValue: 3]
     assert plan("fan", [workMode: 6, modeValue: 0], "setMode", ["FanSpeed"], caps).send[0].api.value == [workMode: 1, modeValue: 4]
+    assert plan("fan", [workMode: 6, modeValue: 0, lastSpeed: 3], "setMode", ["Fixed speed"], caps).send[0].api.value == [workMode: 1, modeValue: 3]
     assert plan("fan", [:], "setSpeedLevel", [6], caps).optimistic.lastSpeed == 6
     assert events("fan", [onOff: 1, workMode: 6, modeValue: 0], caps).speed == "on"
     assert app.goveeEvents(dev("fan", caps), [onOff: 1, workMode: 1, modeValue: 5]).find { it.name == "speedLevel" }.descriptionText == "speed level is 5 of 8"

@@ -610,7 +610,7 @@ check("fan: an MQTT power report triggers an API read, which fills in speed") {
         [instance: "workMode", state: [value: [workMode: 1, modeValue: 3]]], [instance: "oscillationToggle", state: [value: 0]]]]]), c[3])
     hub.settle()
     assert fan().currentValue("speedLevel") == 3 && fan().currentValue("speed") == "medium-low" && fan().currentValue("oscillation") == "off"
-    assert fan().currentValue("mode") == "FanSpeed"
+    assert fan().currentValue("mode") == "Fixed speed"
 }
 
 check("polling reads fans and quiet devices, not lights that report over MQTT") {

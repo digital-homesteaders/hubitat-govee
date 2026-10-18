@@ -119,6 +119,8 @@ preferences {
 
 // Colour temperature range when the Platform API doesn't give one.
 @Field static final List CT_RANGE = [2000, 9000]
+// Govee fan mode names shown differently in Hubitat (either name is accepted).
+@Field static final Map MODE_LABELS = [FanSpeed: "Fixed speed"]
 
 // Hubitat's named fan speeds, slowest first, and the subsets used when a fan
 // has fewer than five steps.
@@ -180,16 +182,16 @@ def mainPage() {
         section("Govee API key (recommended)") {
             paragraph "Needed for fan speed, mode and oscillation, for devices that don't report over Govee's live connection, " +
                 "and as a fallback when a live command isn't confirmed. Request one in the Govee Home app: Profile > Settings > Apply for API Key."
-            input "apiKey", "password", title: "API key", required: false
-            input "pollMinutes", "enum", title: "Read quiet devices from the API every", options: POLL_CHOICES, defaultValue: "5", required: true
+            input "apiKey", "password", title: "Govee API key", required: false
+            input "pollMinutes", "enum", title: "Check devices that haven't sent a live update recently (using the API) every", options: POLL_CHOICES, defaultValue: "5", required: true
             if (state.rate) paragraph "API requests left today: ${state.rate.day ?: '?'}; this minute: ${state.rate.minute ?: '?'}"
         }
         section("Local control") {
-            input "lanEnable", "bool", title: "Use Govee's LAN API for lights that have LAN Control on (Govee Home app > device > settings)", defaultValue: true
+            input "lanEnable", "bool", title: "Control lights directly over your home network when they allow it (turn on LAN Control in the Govee Home app: device > settings)", defaultValue: true
             if (settings.lanEnable != false) paragraph lanSummary()
         }
         section("Logging") {
-            input "logEnable", "bool", title: "Debug logging (turns itself off after 30 minutes)", defaultValue: false
+            input "logEnable", "bool", title: "Debug logging for the app (turns itself off after 30 minutes)", defaultValue: false
             paragraph "Govee Connect version ${VERSION}${driverVersionNote()}"
         }
     }
@@ -204,7 +206,7 @@ private String driverVersionNote() {
 
 private String lanSummary() {
     List names = getGoveeDevices().findAll { lanUsable(it.getDataValue("id")) }.collect { it.displayName }.sort()
-    return names ? "Controlled locally: ${names.join(', ')}" : "No devices found on the LAN yet (scans run every 5 minutes)."
+    return names ? "Controlled over your home network: ${names.join(', ')}" : "No lights found on your home network yet (it's checked every 5 minutes)."
 }
 
 private Map pickerOptions(Map found) {
@@ -852,10 +854,10 @@ private List fanEvents(Map s, Map caps) {
         ev << [name: "maxSpeedLevel", value: speeds.size()]
         ev << [name: "supportedFanSpeeds", value: JsonOutput.toJson(speedNamesFor(speeds.size()) + (hasAuto ? ["auto"] : []) + ["off", "on"])]
     }
-    if (modes) ev << [name: "supportedModes", value: JsonOutput.toJson(modes.collect { it[0] })]
+    if (modes) ev << [name: "supportedModes", value: JsonOutput.toJson(modes.collect { modeLabel(it[0]) })]
     if (s.workMode != null) {
         def m = modes.find { it[1] == s.workMode }
-        ev << say([name: "mode", value: m ? m[0] : s.workMode.toString()], "mode is")
+        ev << say([name: "mode", value: m ? modeLabel(m[0]) : s.workMode.toString()], "mode is")
     }
     if (s.onOff == 0) {
         ev << say([name: "speed", value: "off"], "speed is")
@@ -1018,8 +1020,11 @@ private Map planFanStep(Map caps, Map s, int step) {
     return [send: [send], optimistic: [onOff: 1, workMode: caps.speedMode, modeValue: speeds[step - 1], lastSpeed: speeds[step - 1]]]
 }
 
+/** A Govee fan mode's name as Hubitat shows it. */
+String modeLabel(def name) { (MODE_LABELS[name?.toString()] ?: name?.toString()) as String }
+
 private Map planFanMode(Map caps, Map s, String name) {
-    def m = (caps.modes ?: []).find { it[0].toString().equalsIgnoreCase(name) }
+    def m = (caps.modes ?: []).find { it[0].toString().equalsIgnoreCase(name) || modeLabel(it[0]).equalsIgnoreCase(name) }
     if (!m) return [send: [], optimistic: [:], error: "this fan has no mode '${name}'"]
     // The speed mode needs a step: go back to the last one used.
     if (m[1] == caps.speedMode) {

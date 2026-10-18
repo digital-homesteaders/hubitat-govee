@@ -16,7 +16,8 @@ import groovy.transform.Field
 
 // Govee tower fans have 8 speed steps; the dropdowns can't vary per device.
 @Field static final List SPEED_LEVELS = ["1", "2", "3", "4", "5", "6", "7", "8"]
-@Field static final List FAN_MODES = ["FanSpeed", "Auto", "Sleep", "Nature", "Storm", "Custom"]
+// "Fixed speed" is Govee's FanSpeed mode (the app accepts either name).
+@Field static final List FAN_MODES = ["Fixed speed", "Auto", "Sleep", "Nature", "Storm", "Custom"]
 
 metadata {
     definition(name: "Govee Fan", namespace: "govee", author: "Digital Homesteaders", importUrl: "") {
@@ -33,13 +34,13 @@ metadata {
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "transport", "enum", ["local", "cloud-live", "cloud-api"]
 
-        command "setSpeedLevel", [[name: "Speed level*", type: "ENUM", description: "Fan step as in the Govee app (a fan with fewer steps uses its top one)", constraints: SPEED_LEVELS]]
-        command "setMode", [[name: "Mode*", type: "ENUM", description: "Govee fan mode (supportedModes lists this fan's)", constraints: FAN_MODES]]
-        command "setOscillation", [[name: "Oscillation*", type: "ENUM", constraints: ["on", "off"]]]
+        command "setSpeedLevel", [[name: "Speed (1 to 8)*", type: "ENUM", description: "The speed number as in the Govee app; a fan with fewer speeds uses its top one", constraints: SPEED_LEVELS]]
+        command "setMode", [[name: "Mode*", type: "ENUM", description: "Fixed speed uses the last speed number; the others are the Govee app's modes (supportedModes lists this fan's)", constraints: FAN_MODES]]
+        command "setOscillation", [[name: "Oscillation (swing side to side)*", type: "ENUM", constraints: ["on", "off"]]]
     }
     preferences {
-        input "txtEnable", "bool", title: "Description text logging", defaultValue: true
-        input "logEnable", "bool", title: "Debug logging", defaultValue: false
+        input "txtEnable", "bool", title: "Log changes (on/off, speed, mode, oscillation)", defaultValue: true
+        input "logEnable", "bool", title: "Debug logging (turns itself off after 30 minutes)", defaultValue: false
     }
 }
 
@@ -52,6 +53,7 @@ def installed() {
 
 def updated() {
     checkVersion()
+    if (logEnable) runIn(1800, "logsOff")
     applyState()
 }
 
@@ -108,6 +110,11 @@ private void emit(Map e) {
         if (txtEnable) log.info e.descriptionText
     }
     sendEvent(e)
+}
+
+/** Debug logging switches itself off 30 minutes after it's turned on. */
+void logsOff() {
+    device.updateSetting("logEnable", [value: "false", type: "bool"])
 }
 
 private void logDebug(String msg) {

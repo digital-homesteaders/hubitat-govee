@@ -35,11 +35,11 @@ metadata {
         capability "Initialize"
         attribute "connection", "enum", ["connecting", "connected", "disconnected"]
         command "reconnect"
-        command "disconnectMqtt"
+        command "disconnect"
     }
     preferences {
-        input "queryMinutes", "number", title: "Ask every device for its state every (minutes)", defaultValue: 5, range: "1..60"
-        input "logEnable", "bool", title: "Debug logging", defaultValue: false
+        input "queryMinutes", "number", title: "Check every device's state every (minutes, 1 to 60; updates normally arrive by themselves)", defaultValue: 5, range: "1..60"
+        input "logEnable", "bool", title: "Debug logging (turns itself off after 30 minutes)", defaultValue: false
     }
 }
 
@@ -111,6 +111,7 @@ def installed() {
 def updated() {
     checkVersion()
     if (state.wanted) scheduleQueries()
+    if (logEnable) runIn(1800, "logsOff")
 }
 
 /** Runs at hub start-up (Initialize capability). */
@@ -124,6 +125,9 @@ def reconnect() {
     state.failures = 0
     connectMqtt()
 }
+
+/** The Disconnect command: stop the live connection until Reconnect or the app's Done. */
+def disconnect() { disconnectMqtt() }
 
 def disconnectMqtt() {
     state.wanted = false
@@ -581,6 +585,11 @@ private String pem(String label, byte[] der) {
     StringBuilder sb = new StringBuilder("-----BEGIN ${label}-----\n")
     for (int i = 0; i < b64.length(); i += 64) sb.append(b64.substring(i, Math.min(i + 64, b64.length()))).append("\n")
     return sb.append("-----END ${label}-----\n").toString()
+}
+
+/** Debug logging switches itself off 30 minutes after it's turned on. */
+void logsOff() {
+    device.updateSetting("logEnable", [value: "false", type: "bool"])
 }
 
 private void logDebug(String msg) {

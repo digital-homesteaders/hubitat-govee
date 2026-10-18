@@ -34,14 +34,21 @@ metadata {
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "transport", "enum", ["local", "cloud-live", "cloud-api"]
 
+        // Hubitat's own labels for these say "level" and "duration"; Govee has no fades.
+        command "setLevel", [[name: "Brightness*", type: "NUMBER", description: "Percent, 1 to 100 (0 turns the light off)"]]
+        command "setColorTemperature", [[name: "Color temperature*", type: "NUMBER", description: "Kelvin: about 2700 is warm white, 4000 neutral, 6500 daylight"],
+                                        [name: "Brightness", type: "NUMBER", description: "Optional: percent, 1 to 100"]]
+        command "setHue", [[name: "Hue*", type: "NUMBER", description: "Hubitat's 0 to 100 scale, not degrees: 0 red, 17 yellow, 33 green, 50 cyan, 67 blue, 83 magenta"]]
+        command "setSaturation", [[name: "Saturation*", type: "NUMBER", description: "Color strength in percent: 0 is white, 100 is full color"]]
+        command "setEffect", [[name: "Effect number*", type: "NUMBER", description: "The scene's number in lightEffects. To pick a scene by name, use Set Scene"]]
         command "setScene", [[name: "Scene name*", type: "STRING", description: "Part of the name is enough. Use this in rules: Set Effect numbers change when the favorites change"]]
     }
     preferences {
-        input "favoriteScenes", "enum", title: "Favorite scenes: Set Effect numbers, lightEffects and Next/Previous use just these (none = all)",
+        input "favoriteScenes", "enum", title: "Favorite scenes (Set Effect numbers, Next/Previous Effect and lightEffects use only these; none picked = all scenes)",
             options: sceneOptions(), multiple: true, required: false
-        input "colorKeepsLevel", "bool", title: "Set Color keeps the current brightness (the colour picker otherwise sets 100%)", defaultValue: true
-        input "txtEnable", "bool", title: "Description text logging", defaultValue: true
-        input "logEnable", "bool", title: "Debug logging", defaultValue: false
+        input "colorKeepsLevel", "bool", title: "Keep the current brightness when setting a color (Hubitat's color picker otherwise sets 100%)", defaultValue: true
+        input "txtEnable", "bool", title: "Log changes (on/off, brightness, color, scene)", defaultValue: true
+        input "logEnable", "bool", title: "Debug logging (turns itself off after 30 minutes)", defaultValue: false
     }
 }
 
@@ -54,6 +61,7 @@ def installed() {
 
 def updated() {
     checkVersion()
+    if (logEnable) runIn(1800, "logsOff")
     dropOldAttributes()
     publishEffects()
     applyState()
@@ -223,6 +231,11 @@ private void emit(Map e) {
         if (txtEnable) log.info e.descriptionText
     }
     sendEvent(e)
+}
+
+/** Debug logging switches itself off 30 minutes after it's turned on. */
+void logsOff() {
+    device.updateSetting("logEnable", [value: "false", type: "bool"])
 }
 
 private void logDebug(String msg) {

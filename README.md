@@ -141,4 +141,7 @@ Not yet tried on the hub:
       `goveeMode` gone after Done in the app, `auto` in the fan's supported speeds
 - [ ] Scene detection by mode (learned per light): H60B0 confirmed 5 = plain, 8 = scene
       (2026-10-18, including a scene started from the Govee app); other models untested
+- [ ] Clearer command labels: the light redeclares Set Level (Brightness), Set Color
+      Temperature, Set Hue, Set Saturation and Set Effect with its own wording. Check each
+      shows once, not twice, on the device page.
 - [ ] Reconnect after a hub reboot and after a network drop
