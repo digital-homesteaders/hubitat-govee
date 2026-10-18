@@ -368,16 +368,30 @@ check("scenes: fetched per light, numbered as light effects, set over the API") 
     assert lamp().driver.sceneOptions() == ["DIY: Mine", "Ocean", "Sunrise"]
     // Favorites (by name): Next and Previous cycle through these only, in list order.
     lamp().driver.settings.favoriteScenes = ["DIY: Mine", "Sunrise"]
+    lamp().updated()
+    assert new JsonSlurper().parseText(lamp().currentValue("lightEffects")) == ["1": "Sunrise", "2": "DIY: Mine"], "just the favorites"
+    lamp().setEffect(2)
+    hub.settle()
+    assert lamp().currentValue("effectName") == "DIY: Mine"
+    lamp().setScene("ocean")
+    hub.settle()
+    assert lamp().currentValue("effectName") == "Ocean", "Set Scene still reaches every scene"
+    // Ocean isn't a favorite: Next starts at the first favorite.
+    lamp().setNextEffect()
+    hub.settle()
+    assert lamp().currentValue("effectName") == "Sunrise"
     lamp().setNextEffect()
     hub.settle()
     assert lamp().currentValue("effectName") == "DIY: Mine"
     lamp().setNextEffect()
     hub.settle()
-    assert lamp().currentValue("effectName") == "Sunrise"
+    assert lamp().currentValue("effectName") == "Sunrise", "wraps around"
     lamp().setPreviousEffect()
     hub.settle()
     assert lamp().currentValue("effectName") == "DIY: Mine"
     lamp().driver.settings.remove("favoriteScenes")
+    lamp().updated()
+    assert new JsonSlurper().parseText(lamp().currentValue("lightEffects")).size() == 3
     lamp().setColorTemperature(4000)
     hub.settle()
     assert lamp().currentValue("effectName") == "none"

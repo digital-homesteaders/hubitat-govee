@@ -32,7 +32,7 @@ metadata {
         command "setScene", [[name: "Scene*", type: "STRING", description: "Scene name (part of it is enough) or its number from lightEffects"]]
     }
     preferences {
-        input "favoriteScenes", "enum", title: "Favorite scenes (Next/Previous Effect cycle through these; none = all)",
+        input "favoriteScenes", "enum", title: "Favorite scenes: Set Effect, lightEffects and Next/Previous use just these (none = all)",
             options: sceneOptions(), multiple: true, required: false
         input "txtEnable", "bool", title: "Description text logging", defaultValue: true
         input "logEnable", "bool", title: "Debug logging", defaultValue: false
@@ -48,6 +48,7 @@ def installed() {
 
 def updated() {
     checkVersion()
+    publishEffects()
     applyState()
 }
 
@@ -66,15 +67,40 @@ def setSaturation(saturation) { sendGovee("setSaturation", [saturation]) }
 def setColorTemperature(temp, level = null, transitionTime = null) { sendGovee("setColorTemperature", [temp, level]) }
 
 // Scenes, numbered as in the lightEffects attribute (Govee scenes first, then DIY).
+// With favorites picked, the effects are just the favorites, numbered 1, 2, 3...
 def setEffect(effect) {
     int n = (effect ?: 0) as int
-    List scenes = state.scenes ?: []
-    if (n < 1 || n > scenes.size()) {
-        log.warn "${device.displayName}: no scene ${effect} (there are ${scenes.size()}; see lightEffects)"
+    List order = effectOrder()
+    if (n < 1 || n > order.size()) {
+        log.warn "${device.displayName}: no effect ${effect} (there are ${order.size()}; see lightEffects)"
         return
     }
-    state.effectIndex = n
-    sendGovee("setEffect", [scenes[n - 1]])
+    applyScene(order[n - 1] as int)
+}
+
+/** Run scene number `i` of the full list (1-based). */
+private void applyScene(int i) {
+    List scenes = state.scenes ?: []
+    if (i < 1 || i > scenes.size()) return
+    state.effectIndex = i
+    sendGovee("setEffect", [scenes[i - 1]])
+}
+
+/** Full-list scene numbers that make up the effects: the favorites, else every scene. */
+private List effectOrder() {
+    int size = (state.scenes ?: []).size()
+    Map byName = sceneNumbers()
+    List order = ((settings.favoriteScenes ?: []) as List).collect { byName[it as String] }.findAll { it }.unique().sort()
+    return order ?: (size ? (1..size).toList() : [])
+}
+
+/** lightEffects: the effects by number, as Set Effect takes them. */
+private void publishEffects() {
+    List scenes = state.scenes ?: []
+    Map effects = [:]
+    effectOrder().eachWithIndex { int i, int n -> effects[(n + 1).toString()] = scenes[i - 1][0] }
+    String v = groovy.json.JsonOutput.toJson(effects)
+    if (device.currentValue("lightEffects") != v) sendEvent(name: "lightEffects", value: v)
 }
 
 def setNextEffect() { stepEffect(1) }
@@ -82,16 +108,13 @@ def setPreviousEffect() { stepEffect(-1) }
 
 /** Step through the favorite scenes (or all of them), wrapping around. */
 private void stepEffect(int delta) {
-    int size = (state.scenes ?: []).size()
-    if (!size) return
-    Map byName = sceneNumbers()
-    List order = ((settings.favoriteScenes ?: []) as List).collect { byName[it as String] }.findAll { it }.sort()
-    if (!order) order = (1..size).toList()
+    List order = effectOrder()
+    if (!order) return
     int cur = (state.effectIndex ?: 0) as int
     int pos = order.indexOf(cur)
     // Not on a favorite yet: Next starts at the first, Previous at the last.
     int next = pos < 0 ? (delta > 0 ? 0 : order.size() - 1) : ((pos + delta) % order.size() + order.size()) % order.size()
-    setEffect(order[next])
+    applyScene(order[next] as int)
 }
 
 /** A scene by name (exact, else the first containing it, ignoring case) or by number. */
@@ -110,7 +133,7 @@ def setScene(String scene) {
         log.warn "${device.displayName}: no scene called '${scene}' (see lightEffects)"
         return
     }
-    setEffect(i + 1)
+    applyScene(i + 1)
 }
 
 /** Choices for the favorite scenes preference: the scene names, alphabetically. */
@@ -138,9 +161,7 @@ void goveeScenes(String kind, List list) {
     state.sceneLists = lists
     List all = ((lists.scene ?: []) as List) + ((lists.diy ?: []) as List).collect { ["DIY: ${it[0]}".toString(), it[1], it[2]] }
     state.scenes = all
-    Map effects = [:]
-    all.eachWithIndex { e, i -> effects[(i + 1).toString()] = e[0] }
-    sendEvent(name: "lightEffects", value: groovy.json.JsonOutput.toJson(effects))
+    publishEffects()
 }
 
 private void sendGovee(String cmd, List args = []) {
