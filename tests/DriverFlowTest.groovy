@@ -703,6 +703,69 @@ check("Set Color keeps the brightness unless the preference is off") {
     lamp().driver.settings.colorKeepsLevel = true
 }
 
+check("hold to dim: steps while held, stops on release, at the ends, or on another command") {
+    lamp().goveeUpdate([brightness: 20, onOff: 1], "iot")
+    assert app.commandRoute(lamp()) == "iot"
+    lamp().startLevelChange("up")
+    hub.settle()
+    assert lamp().currentValue("level") == 30
+    assert lamp().driver.callsNamed("runInMillis").last()[1] == 400L && lamp().driver.callsNamed("runInMillis").last()[2] == "rampStep"
+    lamp().rampStep()
+    assert lamp().currentValue("level") == 40
+    lamp().stopLevelChange()
+    lamp().rampStep()
+    assert lamp().currentValue("level") == 40, "released: no more steps"
+    lamp().startLevelChange("down")
+    lamp().on()
+    lamp().rampStep()
+    assert lamp().currentValue("level") == 30, "another command stops the ramp"
+    lamp().goveeUpdate([brightness: 95, onOff: 1], "iot")
+    lamp().startLevelChange("up")
+    assert lamp().currentValue("level") == 100
+    lamp().rampStep()
+    assert lamp().currentValue("level") == 100 && lamp().driver.RAMP.isEmpty(), "stops at the top"
+    lamp().goveeUpdate([onOff: 0], "iot")
+    lamp().startLevelChange("down")
+    assert lamp().currentValue("switch") == "off" && lamp().driver.RAMP.isEmpty(), "dimming down an off light does nothing"
+    lamp().startLevelChange("up")
+    assert lamp().currentValue("switch") == "on" && lamp().currentValue("level") == 10, "brightening an off light starts low"
+    lamp().stopLevelChange()
+}
+
+check("hold to dim over the API: bigger, slower steps; flash refused") {
+    String key = app.settings.apiKey
+    app.settings.apiKey = key ?: "test-key"
+    app.state.apiOnly = [(LAMP): app.now()]
+    hub.settle()
+    try {
+        assert app.commandRoute(lamp()) == "api"
+        lamp().goveeUpdate([brightness: 20, onOff: 1], "iot")
+        lamp().startLevelChange("up")
+        assert lamp().currentValue("level") == 45 && lamp().driver.callsNamed("runInMillis").last()[1] == 1500L
+        lamp().stopLevelChange()
+        lamp().flash()
+        assert lamp().driver.log.lines.any { it[1].contains("can't flash") } && lamp().driver.FLASH.isEmpty()
+    } finally {
+        app.state.apiOnly = [:]
+        app.settings.apiKey = key
+        hub.settle()
+    }
+}
+
+check("flash: blinks and ends as it started; another command stops it") {
+    assert app.commandRoute(lamp()) == "iot"
+    lamp().goveeUpdate([onOff: 1], "iot")
+    lamp().flash(100)
+    assert lamp().currentValue("switch") == "off"
+    assert lamp().driver.callsNamed("runInMillis").last()[1] == 500L, "no faster than 500 ms"
+    9.times { lamp().flashStep() }
+    assert lamp().currentValue("switch") == "on" && lamp().driver.FLASH.isEmpty()
+    lamp().flash()
+    lamp().setLevel(50)
+    lamp().flashStep()
+    assert lamp().currentValue("switch") == "on", "Set Level stopped the flash"
+}
+
 check("an expired token: discovery says so, the live connection keeps going") {
     app.accountDevicesResp(resp(200, [status: 200, message: "token expired"]), [:])
     hub.settle()

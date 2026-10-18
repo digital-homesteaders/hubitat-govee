@@ -10,8 +10,9 @@
  */
 
 import groovy.transform.Field
+import java.util.concurrent.ConcurrentHashMap
 
-@Field static final String DRIVER_VERSION = "0.4.1"
+@Field static final String DRIVER_VERSION = "0.4.2"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Light"
 
@@ -20,6 +21,23 @@ import groovy.transform.Field
 
 // goveeMode was Govee's raw mode number, which meant nothing in the UI (0.3.0 and earlier).
 @Field static final List OLD_ATTRIBUTES = ["goveeMode"]
+
+// Hold-to-dim (ChangeLevel): Govee has no fades, so brightness steps until the
+// button is released. Over the API each step is a rate-limited cloud call, so
+// steps are slower and bigger there. A ramp stops on its own after RAMP_MAX_MS.
+@Field static final int RAMP_STEP = 10
+@Field static final int RAMP_API_STEP = 25
+@Field static final long RAMP_FAST_MS = 400L
+@Field static final long RAMP_API_MS = 1500L
+@Field static final long RAMP_MAX_MS = 20000L
+// Flash: on/off this many times, at least this far apart (not over the API).
+@Field static final int FLASH_TIMES = 5
+@Field static final int FLASH_DEFAULT_MS = 750
+@Field static final int FLASH_MIN_MS = 500
+// Running ramps and flashes by device id. Shared across executions (state is read
+// once per execution), so a release stops the next step at once.
+@Field static final ConcurrentHashMap<Long, Map> RAMP = new ConcurrentHashMap<>()
+@Field static final ConcurrentHashMap<Long, Map> FLASH = new ConcurrentHashMap<>()
 
 metadata {
     definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-light.groovy") {
@@ -30,6 +48,8 @@ metadata {
         capability "ColorControl"
         capability "ColorTemperature"
         capability "ColorMode"
+        capability "ChangeLevel"
+        capability "Flash"
         capability "LightEffects"
         capability "Refresh"
 
@@ -87,6 +107,74 @@ def setColor(Map color) {
 def setHue(hue) { sendGovee("setHue", [hue]) }
 def setSaturation(saturation) { sendGovee("setSaturation", [saturation]) }
 def setColorTemperature(temp, level = null, transitionTime = null) { sendGovee("setColorTemperature", [temp, level]) }
+
+// ---------------------------------------------------------------- hold to dim, flash
+
+/** A button held: step brightness up or down until stopLevelChange (release). */
+def startLevelChange(direction) {
+    stopRunning()
+    boolean up = direction?.toString() != "down"
+    boolean on = device.currentValue("switch") == "on"
+    // Dimming down a light that's off does nothing; brightening it starts from the bottom.
+    if (!on && !up) return
+    int level = on ? ((device.currentValue("level") ?: 50) as int) : 0
+    boolean api = parent?.commandRoute(device) == "api"
+    RAMP[device.idAsLong] = [up: up, level: level, step: api ? RAMP_API_STEP : RAMP_STEP,
+                             every: api ? RAMP_API_MS : RAMP_FAST_MS, until: now() + RAMP_MAX_MS]
+    rampStep()
+}
+
+/** The button released. */
+def stopLevelChange() {
+    RAMP.remove(device.idAsLong)
+    unschedule("rampStep")
+}
+
+void rampStep() {
+    Map r = RAMP[device.idAsLong]
+    if (!r) return
+    int next = Math.max(1, Math.min(100, (r.level as int) + (r.up ? 1 : -1) * (r.step as int)))
+    if (next != r.level) {
+        r.level = next
+        sendGovee("setLevel", [next], true)
+    }
+    if (next <= 1 || next >= 100 || now() > (r.until as long)) {
+        RAMP.remove(device.idAsLong)
+        return
+    }
+    runInMillis(r.every as long, "rampStep")
+}
+
+/** Blink FLASH_TIMES times, ending as it started. Any other command stops it. */
+def flash(rateToFlash = null) {
+    stopRunning()
+    if (parent?.commandRoute(device) == "api") {
+        log.warn "${device.displayName}: can't flash: its commands go through the Govee API, which is too slow and rate-limited for that"
+        return
+    }
+    int rate = Math.max(FLASH_MIN_MS, (rateToFlash ?: FLASH_DEFAULT_MS) as int)
+    FLASH[device.idAsLong] = [left: FLASH_TIMES * 2, rate: rate, on: device.currentValue("switch") == "on"]
+    flashStep()
+}
+
+void flashStep() {
+    Map f = FLASH[device.idAsLong]
+    if (!f) return
+    f.on = !f.on
+    f.left = (f.left as int) - 1
+    sendGovee(f.on ? "on" : "off", [], true)
+    if ((f.left as int) <= 0) {
+        FLASH.remove(device.idAsLong)
+        return
+    }
+    runInMillis(f.rate as long, "flashStep")
+}
+
+/** Stop a ramp or flash in progress (another command takes over). */
+private void stopRunning() {
+    if (RAMP.remove(device.idAsLong) != null) unschedule("rampStep")
+    if (FLASH.remove(device.idAsLong) != null) unschedule("flashStep")
+}
 
 // Scenes, numbered as in the lightEffects attribute (Govee scenes first, then DIY).
 // With favorites picked, the effects are just the favorites, numbered 1, 2, 3...
@@ -193,7 +281,9 @@ void goveeScenes(String kind, List list) {
     publishEffects()
 }
 
-private void sendGovee(String cmd, List args = []) {
+/** `stepping` is true for a ramp or flash's own steps; any other command stops those. */
+private void sendGovee(String cmd, List args = [], boolean stepping = false) {
+    if (!stepping) stopRunning()
     Map optimistic = parent?.goveeCommand(device, state.gov ?: [:], cmd, args)
     // Show the change straight away; the light's own report follows.
     if (optimistic) merge(optimistic)

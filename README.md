@@ -84,6 +84,14 @@ your password: that's dropped as soon as the sign-in finishes.
 | Lights, strips, lamps, bars | Govee Light | on/off, brightness, RGB, colour temperature, online (over LAN when available) | scenes; devices that don't report live |
 | Fans (H710x, H711x) | Govee Fan | on/off | speed level 1-8, mode, oscillation |
 
+**Buttons and alerts:** lights support **Start/Stop Level Change**, the "hold to dim,
+release to stop" that button controllers, Room Lighting and Pico remotes use. Govee
+has no fades, so brightness steps by 10% every 0.4 s while held (25% every 1.5 s for a
+light whose commands go through the Govee API, to stay inside its rate limit). A ramp
+stops on release, at 1% or 100%, after 20 s, or when any other command arrives.
+**Flash** blinks a light five times and leaves it as it was; it's refused for lights
+whose commands go through the API.
+
 In Hubitat, brightness is the `level` attribute and the **Set Level** command (the
 standard names that dashboards, rules and voice assistants use); the logs say
 "brightness". **Set Color** keeps the current brightness by default, because Hubitat's
@@ -161,4 +169,6 @@ Not yet tried on the hub:
 - [ ] Clearer command labels: the light redeclares Set Level (Brightness), Set Color
       Temperature, Set Hue, Set Saturation and Set Effect with its own wording. Check each
       shows once, not twice, on the device page.
+- [ ] Hold to dim from a button (Start/Stop Level Change) and Flash, on a LAN light and an
+      API-only light (the Aura: slower steps, flash refused)
 - [ ] Reconnect after a hub reboot and after a network drop

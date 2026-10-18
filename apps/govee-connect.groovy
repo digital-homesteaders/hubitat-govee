@@ -47,7 +47,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.4.1"
+@Field static final String VERSION = "0.4.2"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -1051,6 +1051,21 @@ private Map planFanMode(Map caps, Map s, String name) {
     return [send: [send], optimistic: [onOff: 1, workMode: m[1], modeValue: 0]]
 }
 
+/** How a device's commands go now: the LAN (ip), MQTT (live), else the API. */
+private Map routeFor(String id) {
+    def conn = getConnection()
+    String topic = (state.discovered ?: [:])[id]?.topic
+    boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(settings.apiKey && apiOnly(id))
+    String ip = conn && lanUsable(id) ? (state.lan ?: [:])[id]?.ip : null
+    return [conn: conn, topic: topic, live: live, ip: ip]
+}
+
+/** For drivers pacing repeated commands: "lan", "iot" or "api" (slow and rate-limited). */
+String commandRoute(def cd) {
+    Map r = routeFor(cd.getDataValue("id"))
+    return r.ip ? "lan" : (r.live ? "iot" : "api")
+}
+
 /** Called by a light or fan driver. Sends the command and returns the optimistic state. */
 Map goveeCommand(def cd, Map s, String cmd, List args) {
     Map plan = planCommand(cd, s ?: [:], cmd, args ?: [])
@@ -1060,10 +1075,11 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
     }
     String id = cd.getDataValue("id")
     String sku = cd.getDataValue("sku")
-    def conn = getConnection()
-    String topic = (state.discovered ?: [:])[id]?.topic
-    boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(settings.apiKey && apiOnly(id))
-    String ip = conn && lanUsable(id) ? (state.lan ?: [:])[id]?.ip : null
+    Map r = routeFor(id)
+    def conn = r.conn
+    String topic = r.topic
+    boolean live = r.live
+    String ip = r.ip
     plan.send.each { Map item ->
         List lib = (item.api?.instance == "lightScene" && ip) ? libraryScene(sku, item.api.value) : null
         if (item.api?.instance == "lightScene" && ip && !lib) ensureLibrary(sku)
