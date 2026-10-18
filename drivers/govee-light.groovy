@@ -138,7 +138,13 @@ def setScene(String scene) {
 
 /** Choices for the favorite scenes preference: the scene names, alphabetically. */
 List sceneOptions() {
-    sceneNumbers().keySet().toList().sort { it.toLowerCase() }
+    // The hub also reads the preferences without a device (the home screen tiles),
+    // where there's no state; failing there breaks the tile.
+    try {
+        return sceneNumbers().keySet().toList().sort { it.toLowerCase() }
+    } catch (e) {
+        return []
+    }
 }
 
 /** Unique scene name -> its number; a repeated name gets " (2)", " (3)"... */
