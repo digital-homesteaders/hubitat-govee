@@ -365,9 +365,9 @@ check("scenes: fetched per light, numbered as light effects, set over the API") 
     lamp().setScene("1")
     hub.settle()
     assert lamp().currentValue("effectName") == "Sunrise"
-    assert lamp().driver.sceneOptions() == ["1": "1. Sunrise", "2": "2. Ocean", "3": "3. DIY: Mine"]
-    // Favorites: Next and Previous cycle through these only.
-    lamp().driver.settings.favoriteScenes = ["3", "1"]
+    assert lamp().driver.sceneOptions() == ["DIY: Mine", "Ocean", "Sunrise"]
+    // Favorites (by name): Next and Previous cycle through these only, in list order.
+    lamp().driver.settings.favoriteScenes = ["DIY: Mine", "Sunrise"]
     lamp().setNextEffect()
     hub.settle()
     assert lamp().currentValue("effectName") == "DIY: Mine"
@@ -457,6 +457,16 @@ check("LAN: two misses in a row pause LAN for the lamp for an hour") {
     assert app.lanUsable(LAMP), "LAN is used again after the hour, once a scan sees it"
     app.state.remove("lan")
     app.state.remove("lanOff")
+}
+
+check("repeated scene names get a number so each can be picked") {
+    lamp().goveeScenes("scene", [["Meditation", "scene", [id: 1]], ["Calm", "scene", [id: 2]], ["Meditation", "scene", [id: 3]]])
+    lamp().goveeScenes("diy", [])
+    assert lamp().driver.sceneOptions() == ["Calm", "Meditation", "Meditation (2)"]
+    assert lamp().driver.sceneNumbers()["Meditation (2)"] == 3
+    lamp().setScene("meditation (2)")
+    hub.settle()
+    assert bodyOf(app.callsNamed("asynchttpPost").last()).payload.capability.value == [id: 3]
 }
 
 check("fan: power over MQTT; speed, mode and oscillation over the API") {

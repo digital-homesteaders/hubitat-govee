@@ -84,7 +84,8 @@ def setPreviousEffect() { stepEffect(-1) }
 private void stepEffect(int delta) {
     int size = (state.scenes ?: []).size()
     if (!size) return
-    List order = ((settings.favoriteScenes ?: []) as List).collect { it as int }.findAll { it >= 1 && it <= size }.sort()
+    Map byName = sceneNumbers()
+    List order = ((settings.favoriteScenes ?: []) as List).collect { byName[it as String] }.findAll { it }.sort()
     if (!order) order = (1..size).toList()
     int cur = (state.effectIndex ?: 0) as int
     int pos = order.indexOf(cur)
@@ -100,9 +101,11 @@ def setScene(String scene) {
         setEffect(q as int)
         return
     }
+    // The names as the favorites list shows them, so "Meditation (2)" works too.
+    Map numbers = sceneNumbers()
+    String exact = numbers.keySet().find { it.equalsIgnoreCase(q) }
     List names = (state.scenes ?: []).collect { (it[0] as String).toLowerCase() }
-    int i = names.indexOf(q.toLowerCase())
-    if (i < 0) i = names.findIndexOf { it.contains(q.toLowerCase()) }
+    int i = exact ? (numbers[exact] as int) - 1 : names.findIndexOf { it.contains(q.toLowerCase()) }
     if (i < 0) {
         log.warn "${device.displayName}: no scene called '${scene}' (see lightEffects)"
         return
@@ -110,10 +113,21 @@ def setScene(String scene) {
     setEffect(i + 1)
 }
 
-/** Choices for the favorite scenes preference: number -> name. */
-Map sceneOptions() {
+/** Choices for the favorite scenes preference: the scene names, alphabetically. */
+List sceneOptions() {
+    sceneNumbers().keySet().toList().sort { it.toLowerCase() }
+}
+
+/** Unique scene name -> its number; a repeated name gets " (2)", " (3)"... */
+Map sceneNumbers() {
     Map out = [:]
-    (state.scenes ?: []).eachWithIndex { e, i -> out[(i + 1).toString()] = "${i + 1}. ${e[0]}".toString() }
+    (state.scenes ?: []).eachWithIndex { e, i ->
+        String name = e[0] as String
+        String key = name
+        int n = 2
+        while (out.containsKey(key)) key = "${name} (${n++})".toString()
+        out[key] = i + 1
+    }
     return out
 }
 
