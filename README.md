@@ -87,6 +87,9 @@ Not yet tried on the hub:
 - [ ] Commands over MQTT (turn, brightness, colorwc RGB and CT) on each light.
       H6022: `turn` works. H6052: reports over MQTT but ignores `turn`, so after two
       misses its commands go over the API (automatic; retried over MQTT after 6 h).
+      Confirmed on the hub 2026-10-17 (0.1.5): first miss failed fast at 3.2 s, then
+      the API took about 5 s to reach the lamp; after the second miss it switched to API-only.
+- [ ] H6052 delay once it's API-only (Govee's cloud; the Govee app may be using Bluetooth)
 - [ ] The API fallback after an unconfirmed command
 - [ ] Fan speed, mode and oscillation on the H7111 and H7101 (H7101 capabilities are unseen)
 - [ ] Reconnect after a hub reboot and after a network drop
