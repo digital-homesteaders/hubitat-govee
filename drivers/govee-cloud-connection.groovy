@@ -228,7 +228,7 @@ def parse(String event) {
     String id = d.device
     if (!id) return
     mem().pending.remove(id)
-    logDebug "${d.sku} …${id.length() > 5 ? id.substring(id.length() - 5) : id} ${d.cmd}: ${d.state ?: d.data ?: ''}"
+    logDebug "${d.sku} ...${id.length() > 5 ? id.substring(id.length() - 5) : id} ${d.cmd}: ${d.state ?: d.data ?: ''}"
     parent?.iotMessage([device: id, sku: d.sku, cmd: d.cmd, state: d.state instanceof Map ? d.state : null])
 }
 

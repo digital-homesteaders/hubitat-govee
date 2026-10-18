@@ -88,7 +88,7 @@ def mainPage() {
             section("Sign in to Govee") {
                 if (state.needsSignIn) paragraph "<b>Govee asked for a new sign-in.</b> Your devices keep working; sign in again to pick up new ones."
                 if (working) {
-                    paragraph lg.withCode ? "Checking your code with Govee…" : "Signing in to Govee…"
+                    paragraph lg.withCode ? "Checking your code with Govee..." : "Signing in to Govee..."
                 } else if (lg.step == "code") {
                     paragraph "Govee emailed you a verification code. Enter it here within about 15 minutes."
                     input "verifyCode", "text", title: "Verification code", required: false
@@ -115,7 +115,7 @@ def mainPage() {
                     paragraph "Devices you untick are removed from Hubitat when you press Done."
                     if (state.unsupported) paragraph "Not supported yet: ${state.unsupported.join(', ')}"
                 } else if (finding) {
-                    paragraph "Looking for devices on your Govee account…"
+                    paragraph "Looking for devices on your Govee account..."
                 } else {
                     paragraph "No devices found.${state.lastError ? ' Last problem: ' + state.lastError : ''}"
                 }
@@ -124,7 +124,7 @@ def mainPage() {
         }
         section("Govee API key (recommended)") {
             paragraph "Needed for fan speed, mode and oscillation, for devices that don't report over Govee's live connection, " +
-                "and as a fallback when a live command isn't confirmed. Request one in the Govee Home app: Profile → Settings → Apply for API Key."
+                "and as a fallback when a live command isn't confirmed. Request one in the Govee Home app: Profile > Settings > Apply for API Key."
             input "apiKey", "password", title: "API key", required: false
             input "pollMinutes", "enum", title: "Read quiet devices from the API every", options: POLL_CHOICES, defaultValue: "5", required: true
             if (state.rate) paragraph "API requests left today: ${state.rate.day ?: '?'}; this minute: ${state.rate.minute ?: '?'}"
@@ -404,6 +404,14 @@ private void discover() {
 }
 
 void accountDevicesResp(resp, Map data) {
+    try {
+        accountDevices(resp)
+    } catch (e) {
+        discoveryFailed("reading Govee's device list failed: ${e}")
+    }
+}
+
+private void accountDevices(resp) {
     int http = statusOf(resp)
     Map json = parseJson(bodyOf(resp))
     List devices = (json?.devices instanceof List) ? json.devices : null
@@ -416,8 +424,7 @@ void accountDevicesResp(resp, Map data) {
         return
     }
     if (http != 200) {
-        state.remove("discoverUntil")
-        state.lastError = "Govee's device list failed (HTTP ${http})"
+        discoveryFailed("Govee's device list failed (HTTP ${http})")
         return
     }
     Map found = [:]
@@ -427,6 +434,7 @@ void accountDevicesResp(resp, Map data) {
         if (!dv.device) return
         found[dv.device] = [sku: dv.sku, name: dv.deviceName ?: dv.sku, topic: ds.topic, kind: guessKind(dv.sku as String)]
     }
+    log.info "Govee: the account lists ${found.size()} device(s)"
     state.accountDevices = found
     state.discoveredAt = now()
     if (settings.apiKey) {
@@ -437,14 +445,30 @@ void accountDevicesResp(resp, Map data) {
 }
 
 void apiDevicesResp(resp, Map data) {
+    try {
+        apiDevices(resp)
+    } catch (e) {
+        discoveryFailed("reading the API device list failed: ${e}")
+    }
+}
+
+private void apiDevices(resp) {
     Map json = apiJson(resp)
     Map caps = [:]
     if (json?.data instanceof List) {
         json.data.each { Map d -> if (d.device) caps[d.device] = d }
+        log.info "Govee: the API lists ${caps.size()} device(s)"
     } else {
         log.warn "Govee: the API device list failed (HTTP ${statusOf(resp)}${json?.message ? ', ' + json.message : ''}); fan controls need it"
     }
     finishDiscovery(caps)
+}
+
+private void discoveryFailed(String why) {
+    log.error "Govee: ${why}"
+    state.lastError = why
+    state.remove("discoverUntil")
+    state.remove("accountDevices")
 }
 
 private void finishDiscovery(Map apiDevices) {

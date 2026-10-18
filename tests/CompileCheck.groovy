@@ -39,6 +39,14 @@ files.each { File f ->
     }
 }
 
+// Pasting into Hubitat's editor can garble non-ASCII text (an ellipsis became "‚Ä¶").
+files.each { File f ->
+    check("ASCII only: ${f.name}") {
+        List bad = f.readLines("UTF-8").withIndex().findAll { line, i -> line.any { (it as char) > 127 } }.collect { it[1] + 1 }
+        assert !bad, "non-ASCII on lines ${bad}"
+    }
+}
+
 boolean isPublic(Class c, String name) {
     c.methods.any { it.name == name && !Modifier.isPrivate(it.modifiers) }
 }
