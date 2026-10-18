@@ -179,6 +179,7 @@ check("a pushed report updates the light") {
     assert l.currentValue("switch") == "on" && l.currentValue("level") == 3 && l.currentValue("colorMode") == "RGB"
     assert l.currentValue("hue") == 67 && l.currentValue("healthStatus") == "online" && l.currentValue("transport") == "iot"
     assert !l.getDataValue("lastIot"), "no device-data write per message"
+    assert l.currentValue("colorTemperature") != null, "the RGBW tile needs a colour temperature even in RGB mode"
     mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [connected: "false", onOff: 0]]])
     assert l.currentValue("healthStatus") == "offline" && l.currentValue("switch") == "off"
 }

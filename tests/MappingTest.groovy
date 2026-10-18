@@ -64,7 +64,8 @@ check("light events: RGB") {
 check("light events: colour temperature wins over a stale colour") {
     Map e = events("light", [onOff: 0, brightness: 100, color: [r: 0, g: 0, b: 0], ct: 6500])
     assert e.switch == "off" && e.colorMode == "CT" && e.colorTemperature == 6500 && e.colorName == "Skylight"
-    assert !e.containsKey("hue")
+    // Only the tile's one-off starting value, not a hue from the stale colour.
+    assert e.hue == 0 && e.saturation == 0
 }
 
 check("light events: offline") {

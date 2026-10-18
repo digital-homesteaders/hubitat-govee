@@ -734,7 +734,10 @@ List goveeEvents(def cd, Map s, Map opts = [:]) {
     List ev = []
     if (s.onOff != null) ev << [name: "switch", value: s.onOff ? "on" : "off"]
     if (s.online != null) ev << [name: "healthStatus", value: s.online ? "online" : "offline"]
-    if (kind == "light") ev.addAll(lightEvents(s, caps))
+    if (kind == "light") {
+        ev.addAll(lightEvents(s, caps))
+        ev.addAll(tileDefaults(cd, ev, caps))
+    }
     if (kind == "fan") ev.addAll(fanEvents(s, caps))
     return ev
 }
@@ -759,6 +762,21 @@ private List lightEvents(Map s, Map caps) {
     if (s.mode != null) ev << [name: "goveeMode", value: s.mode.toString()]
     if (s.containsKey("effect")) ev << [name: "effectName", value: s.effect ?: "none"]
     return ev
+}
+
+/**
+ * Hubitat's RGBW tile needs colorTemperature, hue and saturation. A light only
+ * reports the ones for its current mode, so give any never set a starting value.
+ */
+private List tileDefaults(def cd, List ev, Map caps) {
+    List names = ev.collect { it.name }
+    List out = []
+    if (!("colorTemperature" in names) && cd.currentValue("colorTemperature") == null) {
+        out << [name: "colorTemperature", value: ((caps.ct ?: CT_RANGE)[0]) as int, unit: "K"]
+    }
+    if (!("hue" in names) && cd.currentValue("hue") == null) out << [name: "hue", value: 0]
+    if (!("saturation" in names) && cd.currentValue("saturation") == null) out << [name: "saturation", value: 0, unit: "%"]
+    return out
 }
 
 private List fanEvents(Map s, Map caps) {
