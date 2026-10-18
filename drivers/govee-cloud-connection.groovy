@@ -9,8 +9,9 @@
  * device every few minutes as a safety net.
  *
  * Commands are published to the device's own topic. A command counts as
- * confirmed when the device reports anything within a few seconds; if it
- * doesn't, the app sends it again over the Platform API.
+ * confirmed when the device reports the value it set within a few seconds;
+ * if it doesn't, the app sends it again over the Platform API (some firmware
+ * reports over MQTT but ignores commands there).
  *
  * Protocol ported from lasswellt/govee-homeassistant and wez/govee2mqtt
  * (MIT License; see LICENSE).
@@ -227,9 +228,51 @@ def parse(String event) {
     Map d = json.msg instanceof Map ? json.msg : json
     String id = d.device
     if (!id) return
-    mem().pending.remove(id)
-    logDebug "${d.sku} ...${id.length() > 5 ? id.substring(id.length() - 5) : id} ${d.cmd}: ${d.state ?: d.data ?: ''}"
-    parent?.iotMessage([device: id, sku: d.sku, cmd: d.cmd, state: d.state instanceof Map ? d.state : null])
+    Map st = d.state instanceof Map ? d.state : null
+    logDebug "${d.sku} ...${id.length() > 5 ? id.substring(id.length() - 5) : id} ${d.cmd}: ${st ?: d.data ?: ''}"
+    if (st) st = settlePending(id, st)
+    parent?.iotMessage([device: id, sku: d.sku, cmd: d.cmd, state: st])
+}
+
+/**
+ * Check a report against the device's unconfirmed commands. A command is
+ * confirmed when the report shows the value it set. Values that contradict a
+ * command still waiting are left out of what the app sees, so the switch
+ * doesn't flick back while the command is retried. Returns the state to pass on.
+ */
+private Map settlePending(String id, Map st) {
+    Map p = mem().pending
+    List list = (p.get(id) ?: []) as List
+    if (!list) return st
+    List open = list.findAll { !reportMatches(it.expect as Map, st) }
+    if (open.size() < list.size()) parent?.iotConfirmed(id)
+    if (open) p.put(id, open) else p.remove(id)
+    Map out = new LinkedHashMap(st)
+    open.each { Map e ->
+        (e.expect ?: [:]).keySet().each { String k ->
+            out.remove(k)
+            // Colour and colour temperature move together.
+            if (k in ["color", "colorTemInKelvin"]) { out.remove("color"); out.remove("colorTemInKelvin") }
+        }
+    }
+    return out
+}
+
+/** True when a report shows every value in `expect` (small differences allowed). */
+boolean reportMatches(Map expect, Map st) {
+    if (!expect) return false
+    return expect.every { String k, v ->
+        def got = st[k]
+        if (got == null) return false
+        switch (k) {
+            case "brightness": return Math.abs((got as int) - (v as int)) <= 1
+            case "colorTemInKelvin": return Math.abs((got as int) - (v as int)) <= 50
+            case "color":
+                if (!(got instanceof Map) || !(v instanceof Map)) return false
+                return ["r", "g", "b"].every { Math.abs(((got[it] ?: 0) as int) - ((v[it] ?: 0) as int)) <= 3 }
+            default: return got.toString() == v.toString()
+        }
+    }
 }
 
 // ---------------------------------------------------------------- publishing
@@ -244,15 +287,19 @@ def queryStatus(Map topics) {
     logDebug "Status query sent to ${t.size()} device(s)"
 }
 
-/** Send a command; if the device doesn't answer within a few seconds, the app retries `api` over the Platform API. */
-def publishCommand(String id, String topic, String cmd, Map data, Map api) {
+/**
+ * Send a command. If the device doesn't report `expect` within a few
+ * seconds, the app sends `api` over the Platform API instead.
+ */
+def publishCommand(String id, String topic, String cmd, Map data, Map api, Map expect) {
     if (!publish(topic, [msg: [cmd: cmd, data: data, cmdVersion: 0, transaction: "v_${now()}", type: 1]], 1)) {
-        parent?.iotUnconfirmed(id, api)
+        if (api) parent?.iotUnconfirmed(id, [api])
         return
     }
     Map p = mem().pending
-    List list = (p.get(id) ?: []) as List
-    list << [api: api, at: now(), topic: topic]
+    // A newer command for the same value replaces the older one (a slider being dragged).
+    List list = ((p.get(id) ?: []) as List).findAll { !((it.expect ?: [:]).keySet().intersect((expect ?: [:]).keySet())) }
+    list << [api: api, expect: expect ?: [:], at: now(), topic: topic]
     p.put(id, list)
     runInMillis(CONFIRM_QUERY_MS, "confirmQuery", [overwrite: true])
     runIn(CONFIRM_TIMEOUT_S, "checkPending", [overwrite: true])
@@ -275,10 +322,8 @@ def checkPending() {
         if (!expired) return
         p.put(id, list - expired)
         if (!p.get(id)) p.remove(id)
-        // Only the latest value per capability matters.
-        Map latest = [:]
-        expired.each { if (it.api) latest[it.api.instance] = it.api }
-        latest.values().each { parent?.iotUnconfirmed(id, it) }
+        List apis = expired.collect { it.api }.findAll { it }
+        if (apis) parent?.iotUnconfirmed(id, apis)
     }
     if (p) runIn(CONFIRM_TIMEOUT_S, "checkPending", [overwrite: true])
 }

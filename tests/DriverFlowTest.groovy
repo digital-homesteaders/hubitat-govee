@@ -220,6 +220,73 @@ check("several unconfirmed commands: only the newest value per capability is res
     assert c.size() == 1 && bodyOf(c[0]).payload.capability.value == 40
 }
 
+check("a report contradicting a waiting command doesn't flip the switch back or confirm it (H6052)") {
+    app.state.remove("iotMisses"); app.state.remove("apiOnly")
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 0]])
+    lamp().on()
+    hub.settle()
+    assert lamp().currentValue("switch") == "on"
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 0, brightness: 40, result: 1]])
+    assert lamp().currentValue("switch") == "on", "the stale off is held back"
+    assert lamp().currentValue("level") == 40, "other values still come through"
+    int posts = app.callsNamed("asynchttpPost").size()
+    hub.advance(7000)
+    conn().checkPending()
+    hub.settle()
+    List c = app.callsNamed("asynchttpPost").drop(posts)
+    assert c.size() == 1 && bodyOf(c[0]).payload.capability.instance == "powerSwitch"
+    assert app.state.iotMisses[LAMP] == 1 && !app.apiOnly(LAMP)
+}
+
+check("after two misses in a row, the device's commands go straight to the API") {
+    lamp().off()
+    hub.settle()
+    hub.advance(7000)
+    conn().checkPending()
+    hub.settle()
+    assert app.apiOnly(LAMP)
+    assert app.log.lines.any { it[1].contains("ignores commands there") }
+    int from = pubCount()
+    int posts = app.callsNamed("asynchttpPost").size()
+    lamp().on()
+    hub.settle()
+    assert pubCount() == from, "no MQTT publish"
+    assert bodyOf(app.callsNamed("asynchttpPost").drop(posts)[0]).payload.capability == [type: "devices.capabilities.on_off", instance: "powerSwitch", value: 1]
+    // Status still arrives over MQTT.
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]])
+    assert lamp().currentValue("switch") == "on" && lamp().currentValue("transport") == "iot"
+    hub.advance(6 * 3600 * 1000L + 1000)
+    assert !app.apiOnly(LAMP), "MQTT is tried again after 6 hours"
+}
+
+check("a matching report confirms and clears the misses; a dragged slider confirms on its last value") {
+    app.state.iotMisses = [(LAMP): 1]
+    int from = pubCount()
+    lamp().setLevel(20)
+    lamp().setLevel(30)
+    lamp().setLevel(40)
+    hub.settle()
+    assert published(from).size() == 3
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1, brightness: 39]])
+    int posts = app.callsNamed("asynchttpPost").size()
+    hub.advance(7000)
+    conn().checkPending()
+    hub.settle()
+    assert app.callsNamed("asynchttpPost").size() == posts, "nothing resent"
+    assert !app.state.iotMisses[LAMP]
+}
+
+check("expected values per MQTT command") {
+    assert app.expectFor("turn", [val: 1]) == [onOff: 1]
+    assert app.expectFor("brightness", [val: 30]) == [brightness: 30]
+    assert app.expectFor("colorwc", [color: [r: 0, g: 0, b: 0], colorTemInKelvin: 3000]) == [colorTemInKelvin: 3000]
+    assert app.expectFor("colorwc", [color: [r: 1, g: 2, b: 3], colorTemInKelvin: 0]) == [color: [r: 1, g: 2, b: 3]]
+    def d = conn().driver
+    assert d.reportMatches([color: [r: 255, g: 0, b: 0]], [color: [r: 253, g: 1, b: 0]])
+    assert !d.reportMatches([color: [r: 255, g: 0, b: 0]], [color: [r: 0, g: 0, b: 255]])
+    assert d.reportMatches([colorTemInKelvin: 3000], [colorTemInKelvin: 3030]) && !d.reportMatches([onOff: 1], [brightness: 3])
+}
+
 check("fan: power over MQTT; speed, mode and oscillation over the API") {
     int from = pubCount()
     fan().on()

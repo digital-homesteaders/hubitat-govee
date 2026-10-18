@@ -61,6 +61,11 @@ preferences {
 // in device data: a write per message is wasteful and races device creation.
 // Lost on reboot, which only means one extra API read per device.
 @Field static final ConcurrentHashMap<String, Long> LAST_IOT = new ConcurrentHashMap<>()
+// Unconfirmed MQTT commands in a row before a device's commands go to the API
+// instead (some firmware reports over MQTT but ignores commands there), and
+// how long before MQTT is tried again for it.
+@Field static final int IOT_MISSES_TO_API = 2
+@Field static final long IOT_RETRY_MS = 6 * 3600 * 1000L
 @Field static final Map POLL_CHOICES = ["2": "2 minutes", "5": "5 minutes", "10": "10 minutes", "15": "15 minutes", "30": "30 minutes"]
 
 // Govee device types (Platform API `type`) and the kind of child each becomes.
@@ -820,10 +825,10 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
     String sku = cd.getDataValue("sku")
     def conn = getConnection()
     String topic = (state.discovered ?: [:])[id]?.topic
-    boolean live = conn && topic && conn.currentValue("connection") == "connected"
+    boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(settings.apiKey && apiOnly(id))
     plan.send.each { Map item ->
         if (item.via == "iot" && live) {
-            conn.publishCommand(id, topic, item.cmd as String, item.data as Map, item.api as Map)
+            conn.publishCommand(id, topic, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
         } else if (item.api) {
             if (item.via == "iot") logDebug "${cd.displayName}: no live connection, sending ${item.cmd} over the API"
             sendApi(id, sku, item.api as Map)
@@ -832,16 +837,63 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
     return plan.optimistic
 }
 
-/** The connection driver gives up on an MQTT command with no reply: send it over the API. */
-void iotUnconfirmed(String id, Map api) {
+/** What a device should report once an MQTT command has worked (MQTT state keys). */
+Map expectFor(String cmd, Map data) {
+    switch (cmd) {
+        case "turn": return [onOff: data.val]
+        case "brightness": return [brightness: data.val]
+        case "colorwc":
+            int k = (data.colorTemInKelvin ?: 0) as int
+            return k > 0 ? [colorTemInKelvin: k] : [color: data.color]
+    }
+    return [:]
+}
+
+/** True while a device's commands skip MQTT because it ignored them there. */
+boolean apiOnly(String id) {
+    Long since = (state.apiOnly ?: [:])[id] as Long
+    return since != null && now() - since < IOT_RETRY_MS
+}
+
+/**
+ * The connection driver gave up on MQTT commands the device didn't carry out:
+ * send them over the API, and after a few misses in a row stop using MQTT
+ * for this device's commands for a while.
+ */
+void iotUnconfirmed(String id, List apis) {
     def cd = deviceById(id)
-    if (!cd || !api) return
+    if (!cd || !apis) return
     if (!settings.apiKey) {
-        log.warn "Govee: ${cd.displayName} didn't confirm a command, and there's no API key to retry it with"
+        log.warn "Govee: ${cd.displayName} didn't carry out a command sent over the live connection, and there's no API key to retry it with"
         return
     }
-    log.info "Govee: ${cd.displayName} didn't confirm ${api.instance} over the live connection; sending it over the API"
-    sendApi(id, cd.getDataValue("sku"), api)
+    Map misses = state.iotMisses ?: [:]
+    int n = ((misses[id] ?: 0) as int) + 1
+    misses[id] = n
+    state.iotMisses = misses
+    if (n >= IOT_MISSES_TO_API && !apiOnly(id)) {
+        Map ao = state.apiOnly ?: [:]
+        ao[id] = now()
+        state.apiOnly = ao
+        log.info "Govee: ${cd.displayName} reports over the live connection but ignores commands there; using the API for its commands"
+    } else {
+        log.info "Govee: ${cd.displayName} didn't carry out ${apis*.instance.join(', ')} over the live connection; sending it over the API"
+    }
+    apis.each { sendApi(id, cd.getDataValue("sku"), it as Map) }
+}
+
+/** An MQTT command was carried out: the device obeys MQTT. */
+void iotConfirmed(String id) {
+    if ((state.iotMisses ?: [:])[id]) {
+        Map misses = state.iotMisses
+        misses.remove(id)
+        state.iotMisses = misses
+    }
+    if ((state.apiOnly ?: [:])[id]) {
+        Map ao = state.apiOnly
+        ao.remove(id)
+        state.apiOnly = ao
+    }
 }
 
 // ---------------------------------------------------------------- Platform API
