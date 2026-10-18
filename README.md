@@ -78,8 +78,9 @@ sign-in with 2FA, KeyStore conversion, MQTT with a PKCS#8 key, status replies, a
 unprompted pushes.
 
 Not yet tried on the hub:
-- [ ] The app's sign-in pages (button and code flow)
-- [ ] Discovery with and without an API key; the H605B and H6095 as lights
+- [x] The app's sign-in pages (2026-10-17: signed in, no new code needed for this client id)
+- [x] Discovery with an API key (2026-10-17: 10 of 10 found and added, H7101 typed as a fan by the API)
+- [ ] Discovery without an API key
 - [ ] Commands over MQTT (turn, brightness, colorwc RGB and CT) on each light
 - [ ] The API fallback after an unconfirmed command
 - [ ] Fan speed, mode and oscillation on the H7111 and H7101 (H7101 capabilities are unseen)
