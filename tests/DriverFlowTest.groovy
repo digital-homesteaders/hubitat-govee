@@ -483,6 +483,47 @@ check("repeated scene names get a number so each can be picked") {
     assert bodyOf(app.callsNamed("asynchttpPost").last()).payload.capability.value == [id: 3]
 }
 
+check("LAN scenes: the library is fetched once per model when a lamp turns up on the LAN") {
+    app.state.remove("lanOff"); app.state.remove("lanMisses")
+    app.class.SCENE_LIB.clear(); app.class.LIB_FETCHING.clear()
+    int gets = app.callsNamed("asynchttpGet").size()
+    conn().parse(lanEvent("192.168.1.50", [cmd: "scan", data: [ip: "192.168.1.50", device: LAMP, sku: "H6052"]]))
+    conn().parse(lanEvent("192.168.1.50", [cmd: "scan", data: [ip: "192.168.1.50", device: LAMP, sku: "H6052"]]))
+    hub.settle()
+    List g = app.callsNamed("asynchttpGet").drop(gets)
+    assert g.size() == 1 && g[0][1] == "libraryResp" && g[0][2].uri.endsWith("/appsku/v1/light-effect-libraries") && g[0][2].query == [sku: "H6052"]
+    assert !g[0][2].headers.Authorization, "no sign-in needed"
+    app.libraryResp(resp(200, new File(root, "tests/fixtures/scene-library-h6072.json").text), g[0][3])
+    assert app.log.lines.any { it[1].contains("scene library for H6052") }
+}
+
+check("LAN scenes: a library scene goes to the lamp as ptReal frames; others use the API") {
+    lamp().goveeScenes("scene", [["Sunrise", "scene", [paramId: 1681, id: 1606]], ["Cloud Only", "scene", [paramId: 1, id: 1]]])
+    lamp().goveeScenes("diy", [["Mine", "diy", 8455]])
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 0]])
+    int acts = conn().driver.callsNamed("sendHubCommand").size()
+    int posts = app.callsNamed("asynchttpPost").size()
+    lamp().setScene("Sunrise")
+    hub.settle()
+    List a = hubActions(acts)
+    assert a[0] == ["192.168.1.50:4003", [cmd: "turn", data: [value: 1]]], "turned on first"
+    assert a[1][0] == "192.168.1.50:4003" && a[1][1].cmd == "ptReal"
+    List frames = a[1][1].data.command
+    assert frames.last().decodeBase64().encodeHex().toString().startsWith("3305043308"), "code 2099 = 0x0833"
+    assert frames == app.sceneFrames(2099, app.libraryScene("H6052", [paramId: 1681, id: 1606])[1])
+    assert app.callsNamed("asynchttpPost").size() == posts, "no API call"
+    assert lamp().currentValue("effectName") == "Sunrise"
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]])
+    acts = conn().driver.callsNamed("sendHubCommand").size()
+    lamp().setScene("Cloud Only")
+    lamp().setScene("Mine")
+    hub.settle()
+    assert hubActions(acts).findAll { it[1].cmd == "ptReal" }.isEmpty()
+    List caps = app.callsNamed("asynchttpPost").drop(posts).collect { bodyOf(it).payload.capability.instance }
+    assert caps == ["lightScene", "diyScene"]
+    app.state.remove("lan")
+}
+
 check("fan: power over MQTT; speed, mode and oscillation over the API") {
     int from = pubCount()
     fan().on()

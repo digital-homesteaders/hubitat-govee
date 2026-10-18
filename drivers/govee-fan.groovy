@@ -9,7 +9,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.2.0"
+@Field static final String DRIVER_VERSION = "0.3.0"
 
 // Govee tower fans have 8 speed steps; the dropdowns can't vary per device.
 @Field static final List SPEED_LEVELS = ["1", "2", "3", "4", "5", "6", "7", "8"]

@@ -16,7 +16,11 @@ for an hour. Turn this off under "Local control" on the app page.
 
 **Scenes:** with the API key, each light's Govee scenes and DIY scenes appear as
 Hubitat light effects. `lightEffects` lists them by number, and **Set Effect**, next and
-previous switch between them. They go through Govee's cloud API for now.
+previous switch between them. On a light controlled over the LAN, Govee's own scenes run
+**locally**: the app fetches the model's scene library from Govee once (no sign-in
+needed) and sends the scene to the light as ptReal frames. DIY scenes, and scenes missing
+from the library, go through the API. A light doesn't report which scene is running, so
+LAN scenes can't be confirmed the way power and colour are.
 
 An optional **Govee API key** adds the official Platform API, for:
 - fan speed, mode and oscillation (the live connection only reports a fan's power)
@@ -53,7 +57,7 @@ your password: that's dropped as soon as the sign-in finishes.
 | Lights, strips, lamps, bars | Govee Light | on/off, level, RGB, colour temperature, online (over LAN when available) | scenes; devices that don't report live |
 | Fans (H710x, H711x) | Govee Fan | on/off | speed level 1-8, mode, oscillation |
 
-Not yet: scenes over LAN, per-segment colour, Matter linking, sensors and other
+Not yet: per-segment colour, Matter linking, sensors and other
 appliances. See [`../govee-research/DESIGN.md`](../govee-research/DESIGN.md) for the plan.
 
 ## How it works
@@ -106,6 +110,7 @@ Not yet tried on the hub:
 - [ ] H7111 fan
 - [x] LAN (0.2.0, 2026-10-17): Living Room H60B0 controlled locally, "super fast"
 - [ ] LAN on the other H60B0, H6022 and H619C
+- [ ] Scenes over LAN (0.3.0): frames match govee2mqtt byte for byte; untried on a real lamp
 - [x] Scenes (0.2.0, 2026-10-17): 114 scenes + DIY on the H60B0; Set Effect, Next/Previous,
       Set Scene by name, and favorites as the effect list all work
 - [ ] Reconnect after a hub reboot and after a network drop

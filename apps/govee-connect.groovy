@@ -47,7 +47,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.2.0"
+@Field static final String VERSION = "0.3.0"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -77,6 +77,11 @@ preferences {
 // LAN commands a device didn't confirm, in a row, before LAN is paused for it, and for how long.
 @Field static final int LAN_MISSES_OFF = 2
 @Field static final long LAN_OFF_MS = 3600 * 1000L
+// Govee's scene library per model (sku -> [p: paramId -> [code, param], s: sceneId -> ...]),
+// for running scenes over the LAN. Kept in memory only: fetched again after a
+// reboot or code save, the first time a lamp of that model is seen on the LAN.
+@Field static final ConcurrentHashMap<String, Map> SCENE_LIB = new ConcurrentHashMap<>()
+@Field static final ConcurrentHashMap<String, Long> LIB_FETCHING = new ConcurrentHashMap<>()
 @Field static final Map POLL_CHOICES = ["2": "2 minutes", "5": "5 minutes", "10": "10 minutes", "15": "15 minutes", "30": "30 minutes"]
 
 // Govee device types (Platform API `type`) and the kind of child each becomes.
@@ -930,7 +935,14 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
     boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(settings.apiKey && apiOnly(id))
     String ip = conn && lanUsable(id) ? (state.lan ?: [:])[id]?.ip : null
     plan.send.each { Map item ->
-        if (item.via == "iot" && ip) {
+        List lib = (item.api?.instance == "lightScene" && ip) ? libraryScene(sku, item.api.value) : null
+        if (item.api?.instance == "lightScene" && ip && !lib) ensureLibrary(sku)
+        if (lib) {
+            // A scene over the LAN: turn the light on first if it's off.
+            if (s?.onOff != 1) conn.publishLan(id, ip, "turn", [val: 1], power(1).api as Map, [onOff: 1])
+            conn.publishLanFrames(id, ip, sceneFrames(lib[0] as int, lib[1] as String))
+            logDebug "${cd.displayName}: scene over the LAN (code ${lib[0]})"
+        } else if (item.via == "iot" && ip) {
             conn.publishLan(id, ip, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
         } else if (item.via == "iot" && live) {
             conn.publishCommand(id, topic, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
@@ -1016,6 +1028,96 @@ void lanFound(String id, String ip, String sku) {
         log.info "Govee: ${cd.displayName} found on the LAN at ${ip}"
         cd.updateDataValue("lanIp", ip)
     }
+    if (cd.getDataValue("kind") == "light" && "lightScene" in (capsOf(cd).instances ?: [])) ensureLibrary(cd.getDataValue("sku"))
+}
+
+// ---------------------------------------------------------------- scenes over the LAN
+
+/** Fetch Govee's scene library for a model, once (it needs no sign-in). */
+void ensureLibrary(String sku) {
+    if (!sku || SCENE_LIB.containsKey(sku)) return
+    Long started = LIB_FETCHING.get(sku)
+    if (started && now() - started < 60000) return
+    LIB_FETCHING.put(sku, now())
+    Map p = app2Request("/appsku/v1/light-effect-libraries", null)
+    p.query = [sku: sku]
+    asynchttpGet("libraryResp", p, [sku: sku])
+}
+
+void libraryResp(resp, Map data) {
+    String sku = data?.sku
+    LIB_FETCHING.remove(sku)
+    Map json = parseJson(bodyOf(resp))
+    List cats = json?.data?.categories instanceof List ? json.data.categories : null
+    if (statusOf(resp) != 200 || cats == null) {
+        log.warn "Govee: couldn't fetch the scene library for ${sku} (HTTP ${statusOf(resp)}); its scenes use the cloud"
+        return
+    }
+    SCENE_LIB.put(sku, sceneLibrary(cats))
+    log.info "Govee: scene library for ${sku}: ${SCENE_LIB.get(sku).p.size()} scenes can run over the LAN"
+}
+
+/** Library categories -> lookups by the API's scene value: paramId, and sceneId as a fallback. */
+Map sceneLibrary(List categories) {
+    Map byParam = [:], byScene = [:]
+    categories.each { Map c ->
+        (c.scenes ?: []).each { Map sc ->
+            (sc.lightEffects ?: []).each { Map e ->
+                int code = (e.sceneCode ?: 0) as int
+                if (!code) return
+                List entry = [code, (e.scenceParam ?: "") as String]
+                if (e.scenceParamId != null) byParam[e.scenceParamId.toString()] = entry
+                if (sc.sceneId != null && !byScene.containsKey(sc.sceneId.toString())) byScene[sc.sceneId.toString()] = entry
+            }
+        }
+    }
+    return [p: byParam, s: byScene]
+}
+
+/** [code, param] for an API scene value {id, paramId}, if the model's library has it. */
+List libraryScene(String sku, def value) {
+    Map lib = SCENE_LIB.get(sku)
+    if (!lib || !(value instanceof Map)) return null
+    return (lib.p[value.paramId?.toString()] ?: lib.s[value.id?.toString()]) as List
+}
+
+/**
+ * The ptReal frames that start a scene (base64, 20 bytes each): the scene's
+ * parameters in numbered a3 lines, then 33 05 04 <code>. Each line is padded
+ * to 19 bytes and ends with an XOR checksum. Ported from govee2mqtt (SetSceneCode).
+ */
+List sceneFrames(int code, String paramB64) {
+    byte[] param = (paramB64 ?: "").decodeBase64()
+    List<Integer> data = [0xa3, 0x00, 0x01, 0x00, 0x02]
+    int lines = 0
+    int lastMarker = 1
+    for (int i = 0; i < param.length; i++) {
+        if (data.size() % 19 == 0) {
+            lines++
+            data << 0xa3
+            lastMarker = data.size()
+            data << lines
+        }
+        data << (param[i] & 0xff)
+    }
+    // The last line is marked 0xff instead of its number; the header carries the line count.
+    data[lastMarker] = 0xff
+    data[3] = lines + 1
+    List frames = []
+    for (int i = 0; i < data.size(); i += 19) frames << finishFrame(data.subList(i, Math.min(i + 19, data.size())))
+    frames << finishFrame([0x33, 0x05, 0x04, code & 0xff, (code >> 8) & 0xff])
+    return frames
+}
+
+private String finishFrame(List<Integer> bytes) {
+    byte[] out = new byte[20]
+    int x = 0
+    for (int i = 0; i < bytes.size(); i++) {
+        out[i] = (byte) (bytes[i] & 0xff)
+        x ^= bytes[i] & 0xff
+    }
+    out[19] = (byte) x
+    return out.encodeBase64().toString()
 }
 
 /** LAN address -> device id, for the devices in Hubitat. */

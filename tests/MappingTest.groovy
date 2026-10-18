@@ -132,6 +132,35 @@ check("plan: a scene goes over the API with Govee's own option value; colour cle
     assert !events("light", [onOff: 1]).containsKey("effectName")
 }
 
+check("scene frames are byte-identical to govee2mqtt's snapshot (Forest, code 212)") {
+    String param = "AyYAAQAKAgH/GQG0CgoCyBQF//8AAP//////AP//lP8AFAGWAAAAACMAAg8FAgH/FAH7AAAB+goEBP8AtP8AR///4/8AAAAAAAAAABoAAAABAgH/BQHIFBQC7hQBAP8AAAAAAAAAAA=="
+    List expected = """
+a3 00 01 07 02 03 26 00 01 00 0a 02 01 ff 19 01 b4 0a 0a d9
+a3 01 02 c8 14 05 ff ff 00 00 ff ff ff ff ff 00 ff ff 94 12
+a3 02 ff 00 14 01 96 00 00 00 00 23 00 02 0f 05 02 01 ff 0a
+a3 03 14 01 fb 00 00 01 fa 0a 04 04 ff 00 b4 ff 00 47 ff b3
+a3 04 ff e3 ff 00 00 00 00 00 00 00 00 1a 00 00 00 01 02 5d
+a3 05 01 ff 05 01 c8 14 14 02 ee 14 01 00 ff 00 00 00 00 92
+a3 ff 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 5c
+33 05 04 d4 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 e6
+""".trim().readLines()
+    List got = app.sceneFrames(212, param).collect { it.decodeBase64().encodeHex().toString().replaceAll(/(..)(?!$)/, '$1 ') }
+    assert got == expected
+}
+
+check("scene frames with no parameters: one header line, then the code") {
+    List got = app.sceneFrames(0x0833, "").collect { it.decodeBase64().encodeHex().toString() }
+    assert got.size() == 2 && got[0].startsWith("a3ff0101020000") && got[1].startsWith("33050433080000")
+    got.each { assert it.length() == 40 }
+}
+
+check("scene library lookups by the API's scene value") {
+    Map lib = app.sceneLibrary(new JsonSlurper().parseText(new File(root, "tests/fixtures/scene-library-h6072.json").text).data.categories)
+    assert lib.p.size() > 50
+    assert lib.p["1681"][0] == 2099, "Sunrise: paramId 1681, code 2099"
+    assert lib.s["1606"] == lib.p["1681"]
+}
+
 check("plan: fan speeds and modes go over the API") {
     Map caps = capsFor("H7111")
     Map p = plan("fan", [onOff: 1], "setSpeed", ["high"], caps)

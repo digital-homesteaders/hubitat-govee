@@ -43,7 +43,7 @@ metadata {
     }
 }
 
-@Field static final String DRIVER_VERSION = "0.2.0"
+@Field static final String DRIVER_VERSION = "0.3.0"
 @Field static final int CONNECT_WAIT_S = 5
 @Field static final long CONFIRM_QUERY_MS = 1500
 @Field static final int CONFIRM_TIMEOUT_S = 6
@@ -472,6 +472,11 @@ def publishLan(String id, String ip, String cmd, Map data, Map api, Map expect) 
     p.put(id, list)
     runInMillis(LAN_CONFIRM_MS, "lanConfirm", [overwrite: true])
     runIn(CONFIRM_TIMEOUT_S, "checkPending", [overwrite: true])
+}
+
+/** Send raw ptReal frames (base64) over the LAN, e.g. a scene. Nothing reports a scene back, so this isn't confirmed. */
+def publishLanFrames(String id, String ip, List frames) {
+    if (!lanSend(ip, [msg: [cmd: "ptReal", data: [command: frames]]])) log.warn "Govee: couldn't send a scene to ${ip}"
 }
 
 /** Read devStatus from every device with an unconfirmed LAN command. */
