@@ -104,6 +104,8 @@ Not yet tried on the hub:
 - [ ] The API fallback after an unconfirmed command
 - [x] H7101 fan (2026-10-17): on/off, speed levels 1-8, Auto/Sleep/Nature/FanSpeed, oscillation
 - [ ] H7111 fan
-- [ ] LAN (0.2.0): scan finds the H60B0s, H6022 and H619C; commands confirmed by devStatus
-- [ ] Scenes (0.2.0): lightEffects filled for each light; Set Effect works
+- [x] LAN (0.2.0, 2026-10-17): Living Room H60B0 controlled locally, "super fast"
+- [ ] LAN on the other H60B0, H6022 and H619C
+- [x] Scenes (0.2.0, 2026-10-17): 114 scenes + DIY on the H60B0; Set Effect, Next/Previous,
+      Set Scene by name, and favorites as the effect list all work
 - [ ] Reconnect after a hub reboot and after a network drop
