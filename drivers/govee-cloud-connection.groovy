@@ -43,7 +43,7 @@ metadata {
     }
 }
 
-@Field static final String DRIVER_VERSION = "0.4.2"
+@Field static final String DRIVER_VERSION = "0.4.3"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Cloud Connection"
 @Field static final int CONNECT_WAIT_S = 5
@@ -257,10 +257,18 @@ def parse(String event) {
         lanParse(event)
         return
     }
-    Map m = interfaces.mqtt.parseMessage(event)
     def json = null
-    try { json = new JsonSlurper().parseText(m.payload as String) } catch (e) { }
-    if (!(json instanceof Map)) return
+    try {
+        Map m = interfaces.mqtt.parseMessage(event)
+        json = mqttJson(m?.payload as String)
+    } catch (e) {
+        logDebug "MQTT message not understood (${e.class.simpleName}, ${event?.length() ?: 0} characters)"
+        return
+    }
+    if (!(json instanceof Map)) {
+        logDebug "MQTT message not understood (not a JSON object)"
+        return
+    }
     Map d = json.msg instanceof Map ? json.msg : json
     String id = d.device
     if (!id) return
@@ -268,6 +276,27 @@ def parse(String event) {
     logDebug "${d.sku} ...${id.length() > 5 ? id.substring(id.length() - 5) : id} ${d.cmd}: ${st ?: d.data ?: ''}"
     if (st) st = settlePending(id, st)
     parent?.iotMessage([device: id, sku: d.sku, cmd: d.cmd, state: st, via: "iot"])
+}
+
+/**
+ * An MQTT payload as JSON. Some lights (H6117) send bytes that aren't valid
+ * UTF-8, which arrive as replacement or control characters and break the JSON:
+ * those are removed and it's read again. Returns null if it still isn't JSON.
+ */
+def mqttJson(String payload) {
+    if (!payload) return null
+    try {
+        return new JsonSlurper().parseText(payload)
+    } catch (e) { }
+    String clean = payload.replaceAll(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\uFFFD]/, "")
+    if (clean == payload) return null
+    try {
+        def json = new JsonSlurper().parseText(clean)
+        logDebug "MQTT message had ${payload.length() - clean.length()} unreadable character(s), removed"
+        return json
+    } catch (e) {
+        return null
+    }
 }
 
 /**

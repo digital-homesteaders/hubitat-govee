@@ -1,12 +1,12 @@
 {
   "packageName": "Govee Connect",
   "author": "Digital Homesteaders",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "minimumHEVersion": "2.3.0",
   "dateReleased": "2026-10-18",
   "documentationLink": "https://github.com/GITHUB_OWNER/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Lights: hold-to-dim from buttons (Start/Stop Level Change) and Flash.",
+  "releaseNotes": "Correctness fixes: a failed API command reads the real state back; power on before brightness and colour; a scene ends when the light reports a new mode; API reads back off after a rate limit; failed scene lists retried in 30 minutes; unreadable MQTT bytes cleaned; the 2FA password kept in memory only; LAN stops with the last device; light and fan drivers single-threaded.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

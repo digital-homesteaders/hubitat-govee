@@ -82,6 +82,27 @@ check("a wrong code says so and keeps the code step") {
     assert app.state.login.step == "code" && app.state.login.error.contains("didn't accept that code")
 }
 
+check("the password waiting for the code is kept in memory only, and not for long") {
+    assert !app.state.pendingPassword && !JsonOutput.toJson(app.state).contains(PASSWORD), "never in state"
+    int posts = app.callsNamed("asynchttpPost").size()
+    hub.advance(16 * 60 * 1000L)
+    app.settings.verifyCode = "1234"
+    app.appButtonHandler("btnCode")
+    app.mainPage()
+    assert app.callsNamed("asynchttpPost").size() == posts && app.state.login.error.contains("Enter your password again")
+    // Starting over works as before.
+    app.settings.password = PASSWORD
+    app.appButtonHandler("btnSignIn")
+    app.mainPage()
+    hub.settle()
+    List c = lastHttp()
+    assert bodyOf(c).password == PASSWORD && !bodyOf(c).code
+    app.loginResp(resp(200, [status: 454, message: ""]), c[3])
+    app.codeResp(resp(200, [status: 200]), [:])
+    hub.settle()
+    assert app.state.login.step == "code"
+}
+
 check("the right code signs in, fetches the certificate and the device list") {
     app.settings.verifyCode = "1234"
     app.appButtonHandler("btnCode")
@@ -691,6 +712,84 @@ check("a light's mode number: learned after a colour command, then shows scenes 
     assert app.state.lightModes[LAMP].plain == [] && app.state.lightModes[LAMP].scene == ["8"]
 }
 
+check("a light that leaves a learned scene mode for one not learned yet is out of the scene") {
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [mode: 8, onOff: 1]])
+    assert lamp().currentValue("colorMode") == "EFFECTS"
+    // A colour picked in the Govee app: a mode number Hubitat hasn't seen.
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [color: [r: 0, g: 0, b: 255], colorTemInKelvin: 0, mode: 11, onOff: 1]])
+    assert lamp().currentValue("colorMode") == "RGB" && lamp().currentValue("effectName") == "none"
+    mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [color: [r: 0, g: 0, b: 255], colorTemInKelvin: 0, mode: 11, onOff: 1]])
+    assert lamp().currentValue("colorMode") == "RGB"
+}
+
+check("MQTT: a payload with unreadable bytes (H6117) is cleaned and read; garbage is skipped") {
+    String bad = JsonOutput.toJson([sku: "H6117", device: LAMP, cmd: "status", state: [brightness: 61, onOff: 1]]).replace(',"cmd"', ',\u0001\uFFFD"cmd"')
+    conn().parse(JsonOutput.toJson([topic: ACCOUNT_TOPIC, payload: bad]))
+    hub.settle()
+    assert lamp().currentValue("level") == 61
+    conn().parse(JsonOutput.toJson([topic: ACCOUNT_TOPIC, payload: "\u0002\u0003not json"]))
+    conn().parse("not even an MQTT message")
+    hub.settle()
+    assert lamp().currentValue("level") == 61
+}
+
+check("a failed API command reads the device's real state back") {
+    int posts = app.callsNamed("asynchttpPost").size()
+    app.apiControlResp(resp(400, [code: 400, msg: "device offline"]), [id: LAMP, instance: "powerSwitch"])
+    List c = app.callsNamed("asynchttpPost").drop(posts)
+    assert c.size() == 1 && c[0][1] == "apiStateResp" && bodyOf(c[0]).payload.device == LAMP
+}
+
+check("an HTTP 429 holds back polls, refreshes and scene lists, longer each time; a success ends it") {
+    int posts = app.callsNamed("asynchttpPost").size()
+    app.apiControlResp(resp(429, [code: 429, msg: "Too Many Requests"]), [id: LAMP, instance: "powerSwitch"])
+    assert app.callsNamed("asynchttpPost").size() == posts, "the read-back waits too"
+    List later = app.callsNamed("runIn").last()
+    assert later[2] == "refreshDevice" && later[1] >= 60
+    app.pollQuiet()
+    app.refreshDevice([id: FAN])
+    app.loadScenes(true)
+    assert app.callsNamed("asynchttpPost").size() == posts
+    hub.advance(61 * 1000L)
+    assert !app.apiPaused()
+    app.apiStateResp(resp(429, [code: 429]), [id: FAN])
+    assert app.apiPauseLeft() > 60 * 1000L, "a second 429 in a row waits two minutes"
+    hub.advance(121 * 1000L)
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), [id: FAN])
+    app.apiStateResp(resp(429, [code: 429]), [id: FAN])
+    assert app.apiPauseLeft() <= 60 * 1000L, "after a success it starts at a minute again"
+    hub.advance(61 * 1000L)
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), [id: FAN])
+    app.pollQuiet()
+    assert app.callsNamed("asynchttpPost").size() > posts
+}
+
+check("scene lists that fail to load are tried again in half an hour, not a day") {
+    app.state.remove("scenesAt")
+    hub.advance(31 * 60 * 1000L)
+    int posts = app.callsNamed("asynchttpPost").size()
+    app.loadScenes()
+    List c = app.callsNamed("asynchttpPost").drop(posts)
+    assert c.size() == 2
+    c.each { app.scenesResp(resp(500, [code: 500]), it[3]) }
+    hub.settle()
+    assert !(app.state.scenesAt ?: [:])[LAMP]
+    posts = app.callsNamed("asynchttpPost").size()
+    app.loadScenes()
+    assert app.callsNamed("asynchttpPost").size() == posts, "not on every poll"
+    hub.advance(31 * 60 * 1000L)
+    app.loadScenes()
+    c = app.callsNamed("asynchttpPost").drop(posts)
+    assert c.size() == 2
+    app.scenesResp(resp(200, [code: 200, payload: [capabilities: []]]), c[0][3])
+    hub.settle()
+    assert app.state.scenesAt[LAMP]
+    hub.advance(31 * 60 * 1000L)
+    posts = app.callsNamed("asynchttpPost").size()
+    app.loadScenes()
+    assert app.callsNamed("asynchttpPost").size() == posts, "loaded: fresh for a day"
+}
+
 check("Set Color keeps the brightness unless the preference is off") {
     mqtt([sku: "H6052", device: LAMP, cmd: "status", state: [brightness: 20, onOff: 1]])
     lamp().setColor([hue: 0, saturation: 100, level: 100])
@@ -780,6 +879,14 @@ check("no secret reaches a log, event or child data") {
     [PASSWORD, TOKEN, "owner@example.com", "Owner@Example.com", ACCOUNT_TOPIC, topic(LAMP), "BEGIN", "test-pass-1"].each {
         assert !all.contains(it), "leaked ${it}"
     }
+}
+
+check("removing the last device stops the live connection and the LAN listener") {
+    assert conn().driver.state.lan == true
+    app.settings.selectedDevices = []
+    app.updated()
+    hub.settle()
+    assert conn().currentValue("connection") == "disconnected" && conn().driver.state.lan == false
 }
 
 check("sign out forgets the token and certificate and stops the connection") {

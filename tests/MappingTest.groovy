@@ -107,17 +107,22 @@ check("plan: on/off go over MQTT, with the API as fallback") {
 
 check("plan: setLevel turns an off light on; 0 turns it off") {
     Map p = plan("light", [onOff: 0], "setLevel", [40])
-    assert p.send*.cmd == ["brightness", "turn"] && p.send[0].data == [val: 40] && p.optimistic == [brightness: 40, onOff: 1]
+    assert p.send*.cmd == ["turn", "brightness"] && p.send[1].data == [val: 40] && p.optimistic == [brightness: 40, onOff: 1]
     assert plan("light", [onOff: 1], "setLevel", [40]).send*.cmd == ["brightness"]
     assert plan("light", [onOff: 1], "setLevel", [0]).send*.cmd == ["turn"]
 }
 
-check("plan: setColor sends colorwc RGB, level and power") {
+check("plan: setColor turns the light on, then sends colorwc RGB and level") {
     Map p = plan("light", [onOff: 0], "setColor", [[hue: 0, saturation: 100, level: 50]])
-    assert p.send*.cmd == ["colorwc", "brightness", "turn"]
-    assert p.send[0].data == [color: [r: 255, g: 0, b: 0], colorTemInKelvin: 0]
-    assert p.send[0].api == [type: "devices.capabilities.color_setting", instance: "colorRgb", value: 0xFF0000]
+    assert p.send*.cmd == ["turn", "colorwc", "brightness"], "on first: some lights ignore colour while off"
+    assert p.send[1].data == [color: [r: 255, g: 0, b: 0], colorTemInKelvin: 0]
+    assert p.send[1].api == [type: "devices.capabilities.color_setting", instance: "colorRgb", value: 0xFF0000]
     assert p.optimistic == [color: [r: 255, g: 0, b: 0], ct: 0, effect: null, scene: false, brightness: 50, onOff: 1]
+}
+
+check("plan: colour temperature on an off light turns it on first") {
+    assert plan("light", [onOff: 0], "setColorTemperature", [3000]).send*.cmd == ["turn", "colorwc"]
+    assert plan("light", [onOff: 1], "setColorTemperature", [3000]).send*.cmd == ["colorwc"]
 }
 
 check("plan: setHue keeps the current saturation") {

@@ -12,7 +12,7 @@
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
 
-@Field static final String DRIVER_VERSION = "0.4.2"
+@Field static final String DRIVER_VERSION = "0.4.3"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Light"
 
@@ -40,7 +40,9 @@ import java.util.concurrent.ConcurrentHashMap
 @Field static final ConcurrentHashMap<Long, Map> FLASH = new ConcurrentHashMap<>()
 
 metadata {
-    definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-light.groovy") {
+    // One thing at a time per device: a command, a live report and an API read
+    // arriving together would otherwise each merge into state.gov and lose the others' changes.
+    definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", singleThreaded: true, importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-light.groovy") {
         capability "Actuator"
         capability "Light"
         capability "Switch"

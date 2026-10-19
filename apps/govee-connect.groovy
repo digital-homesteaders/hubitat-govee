@@ -47,7 +47,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.4.2"
+@Field static final String VERSION = "0.4.3"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -88,6 +88,22 @@ preferences {
 @Field static final long MODE_LEARN_MAX_MS = 30 * 1000L
 // Ask for a status this long after a colour or scene command, to learn from.
 @Field static final int MODE_QUERY_S = 3
+// Each light's last reported mode, to notice a light leaving a scene for a mode
+// not learned yet (a colour picked in the Govee app, say).
+@Field static final ConcurrentHashMap<String, String> LAST_MODE = new ConcurrentHashMap<>()
+// The password while Govee's emailed code is awaited, by app id: [pw:, at:]. In
+// memory only, never in state, and dropped after PASSWORD_KEEP_MS.
+@Field static final ConcurrentHashMap<Long, Map> PENDING_PW = new ConcurrentHashMap<>()
+@Field static final long PASSWORD_KEEP_MS = 15 * 60 * 1000L
+// After an HTTP 429 the API's reads (polls, refreshes, scene lists) wait, starting
+// at a minute and doubling to 30 minutes while it repeats. Commands still go.
+// By app id: [until: ms, wait: ms].
+@Field static final ConcurrentHashMap<Long, Map> API_BACKOFF = new ConcurrentHashMap<>()
+@Field static final long API_BACKOFF_MIN_MS = 60 * 1000L
+@Field static final long API_BACKOFF_MAX_MS = 30 * 60 * 1000L
+// A light's scene lists that failed to load are tried again after this long.
+@Field static final ConcurrentHashMap<String, Long> SCENES_TRIED = new ConcurrentHashMap<>()
+@Field static final long SCENES_RETRY_MS = 30 * 60 * 1000L
 // Govee's scene library per model (sku -> [p: paramId -> [code, param], s: sceneId -> ...]),
 // for running scenes over the LAN. Kept in memory only: fetched again after a
 // reboot or code save, the first time a lamp of that model is seen on the LAN.
@@ -306,6 +322,7 @@ void initialize() {
     if (logEnable) runIn(1800, "logsOff")
     if (!getGoveeDevices()) {
         getConnection()?.disconnectMqtt()
+        getConnection()?.lanStop()
         return
     }
     getConnection()?.connectMqtt()
@@ -376,20 +393,37 @@ String clientIdFor(String email) {
 
 private void startSignIn(String code) {
     String email = (settings.email ?: "").trim()
-    if (!email || (!settings.password && !state.pendingPassword)) {
-        state.login = [error: "Enter your Govee email and password."]
-        return
-    }
-    // The password stays only for the code step, then it's dropped.
+    // The password stays in memory only for the code step, then it's dropped.
     if (settings.password) {
-        state.pendingPassword = settings.password
+        PENDING_PW[app.id as Long] = [pw: settings.password, at: now()]
         app.removeSetting("password")
     }
+    state.remove("pendingPassword")
+    String password = pendingPassword()
+    if (!email || !password) {
+        state.login = [error: code ? "The sign-in took too long, or the hub restarted. Enter your password again." : "Enter your Govee email and password."]
+        return
+    }
     state.clientId = clientIdFor(email)
-    Map body = [email: email, password: state.pendingPassword, client: state.clientId, clientType: "1"]
+    Map body = [email: email, password: password, client: state.clientId, clientType: "1"]
     if (code) body.code = code
     state.login = [step: "working", at: now(), withCode: code != null]
     asynchttpPost("loginResp", app2Request("/account/rest/account/v2/login", body), [withCode: code != null])
+}
+
+/** The password kept for the code step, or null once it has expired. */
+private String pendingPassword() {
+    Map p = PENDING_PW[app.id as Long]
+    if (p && now() - (p.at as long) > PASSWORD_KEEP_MS) {
+        dropPassword()
+        p = null
+    }
+    return p?.pw as String
+}
+
+private void dropPassword() {
+    PENDING_PW.remove(app.id as Long)
+    state.remove("pendingPassword")
 }
 
 private void submitCode() {
@@ -410,7 +444,7 @@ void loginResp(resp, Map data) {
     logDebug "Sign-in: HTTP ${http}, status ${status}, ${json?.message}"
     if (http == 200 && status == 200 && json?.client?.token) {
         Map c = json.client
-        state.remove("pendingPassword")
+        dropPassword()
         state.token = c.token
         state.login = null
         state.remove("needsSignIn")
@@ -426,10 +460,10 @@ void loginResp(resp, Map data) {
             asynchttpPost("codeResp", app2Request("/account/rest/account/v1/verification", [type: 8, email: settings.email.trim()]))
         }
     } else if (http == 401 || status == 401) {
-        state.remove("pendingPassword")
+        dropPassword()
         state.login = [error: "Govee didn't accept that email and password."]
     } else {
-        state.remove("pendingPassword")
+        dropPassword()
         state.login = [error: "Sign-in failed (HTTP ${http}, status ${status}${json?.message ? ': ' + json.message : ''})."]
     }
 }
@@ -439,7 +473,7 @@ void codeResp(resp, Map data) {
     if (http == 200) {
         state.login = [step: "code"]
     } else {
-        state.remove("pendingPassword")
+        dropPassword()
         state.login = [error: "Govee couldn't send a verification code (HTTP ${http}). Try again later."]
     }
 }
@@ -467,6 +501,7 @@ void iotKeyResp(resp, Map data) {
 private void signOut() {
     getConnection()?.disconnectMqtt()
     ["token", "iot", "login", "clientId", "pendingPassword", "needsSignIn", "discovered", "unsupported", "discoverUntil"].each { state.remove(it) }
+    PENDING_PW.remove(app.id as Long)
     log.info "Govee: signed out"
 }
 
@@ -606,18 +641,21 @@ private void finishDiscovery(Map apiDevices) {
  * The lists live on the light devices, not in the app's state.
  */
 void loadScenes(boolean force = false) {
-    if (!settings.apiKey) return
+    if (!settings.apiKey || apiPaused()) return
     Map at = state.scenesAt ?: [:]
     getGoveeDevices().findAll { it.getDataValue("kind") == "light" }.each { cd ->
         String id = cd.getDataValue("id")
-        if (!force && at[id] && now() - (at[id] as long) < DISCOVERY_MAX_AGE_MS) return
         List instances = capsOf(cd).instances ?: []
+        if (!("lightScene" in instances) && !("diyScene" in instances)) return
+        if (!force && at[id] && now() - (at[id] as long) < DISCOVERY_MAX_AGE_MS) return
+        // A list that failed isn't asked for again on every poll.
+        Long tried = SCENES_TRIED[id]
+        if (!force && tried && now() - tried < SCENES_RETRY_MS) return
+        SCENES_TRIED[id] = now()
         Map body = [requestId: "hubitat-${now()}", payload: [sku: cd.getDataValue("sku"), device: id]]
         if ("lightScene" in instances) apiRequest("POST", "/device/scenes", body, "scenesResp", [id: id, kind: "scene"])
         if ("diyScene" in instances) apiRequest("POST", "/device/diy-scenes", body, "scenesResp", [id: id, kind: "diy"])
-        at[id] = now()
     }
-    state.scenesAt = at
 }
 
 void scenesResp(resp, Map data) {
@@ -635,6 +673,10 @@ void scenesResp(resp, Map data) {
     }
     logDebug "${cd.displayName}: ${list.size()} ${data.kind} scene(s)"
     cd.goveeScenes(data.kind as String, list)
+    // Fresh only once a list has arrived: a failure is tried again later.
+    Map at = state.scenesAt ?: [:]
+    at[data.id] = now()
+    state.scenesAt = at
 }
 
 /** Light or fan from the SKU, when there's no API key to ask: fans are H710x/H711x, other H7xxx are appliances, H5xxx sensors. */
@@ -705,7 +747,7 @@ void iotMessage(Map msg) {
         cd.goveeSeen(via)
         return
     }
-    if (s.mode != null && cd.getDataValue("kind") == "light") s.putAll(sceneFromMode(id, s.mode))
+    if (s.mode != null && cd.getDataValue("kind") == "light") s.putAll(sceneFromMode(id, s.mode, LAST_MODE.put(id, s.mode.toString())))
     cd.goveeUpdate(s, via)
     // Fans report only power over MQTT: read speed and mode once power changes.
     if (cd.getDataValue("kind") == "fan" && s.containsKey("onOff") && settings.apiKey) runIn(2, "refreshDevice", [data: [id: id], overwrite: false])
@@ -719,7 +761,7 @@ void noteIot(String id, long at) { if (id) LAST_IOT.put(id, at) }
  * nothing while the number isn't known yet. Learns the number first when Hubitat
  * has just set a colour or scene.
  */
-Map sceneFromMode(String id, def mode) {
+Map sceneFromMode(String id, def mode, String before = null) {
     String m = mode.toString()
     Map intent = MODE_INTENT[id]
     long age = intent ? now() - (intent.at as long) : Long.MAX_VALUE
@@ -732,6 +774,8 @@ Map sceneFromMode(String id, def mode) {
     Map known = (state.lightModes ?: [:])[id] ?: [:]
     if (m in (known.scene ?: [])) return [scene: true]
     if (m in (known.plain ?: [])) return [scene: false, effect: null]
+    // Left a scene for a mode not learned yet: whatever it is, the scene is over.
+    if (before != null && before != m && before in (known.scene ?: [])) return [scene: false, effect: null]
     return [:]
 }
 
@@ -926,17 +970,16 @@ Map planCommand(def cd, Map s, String cmd, List args) {
                 send << power(0)
                 opt.onOff = 0
             } else {
+                // On first: some lights ignore brightness and colour while off.
+                powerOnFirst(s, send, opt)
                 send << [via: "iot", cmd: "brightness", data: [val: level], api: [type: "devices.capabilities.range", instance: "brightness", value: level]]
                 opt.brightness = level
-                if (s.onOff != 1) {
-                    send << power(1)
-                    opt.onOff = 1
-                }
             }
             break
         case "setColor":
             Map hsl = args[0] as Map
             Map rgb = hsvToRgb((hsl.hue ?: 0) as double, (hsl.saturation ?: 0) as double)
+            powerOnFirst(s, send, opt)
             send << colorSend(rgb)
             opt.color = rgb
             opt.ct = 0
@@ -947,7 +990,6 @@ Map planCommand(def cd, Map s, String cmd, List args) {
                 send << [via: "iot", cmd: "brightness", data: [val: level], api: [type: "devices.capabilities.range", instance: "brightness", value: level]]
                 opt.brightness = level
             }
-            if (s.onOff != 1) { send << power(1); opt.onOff = 1 }
             break
         case "setHue":
         case "setSaturation":
@@ -955,16 +997,17 @@ Map planCommand(def cd, Map s, String cmd, List args) {
             double hue = cmd == "setHue" ? (args[0] as double) : (hsv.hue as double)
             double sat = cmd == "setSaturation" ? (args[0] as double) : (hsv.saturation as double)
             Map rgb = hsvToRgb(hue, sat)
+            powerOnFirst(s, send, opt)
             send << colorSend(rgb)
             opt.color = rgb
             opt.ct = 0
             opt.effect = null
             opt.scene = false
-            if (s.onOff != 1) { send << power(1); opt.onOff = 1 }
             break
         case "setColorTemperature":
             List range = caps.ct ?: CT_RANGE
             int k = clamp(args[0] as int, range[0] as int, range[1] as int)
+            powerOnFirst(s, send, opt)
             send << [via: "iot", cmd: "colorwc", data: [color: [r: 0, g: 0, b: 0], colorTemInKelvin: k],
                      api: [type: "devices.capabilities.color_setting", instance: "colorTemperatureK", value: k]]
             opt.ct = k
@@ -975,7 +1018,6 @@ Map planCommand(def cd, Map s, String cmd, List args) {
                 send << [via: "iot", cmd: "brightness", data: [val: level], api: [type: "devices.capabilities.range", instance: "brightness", value: level]]
                 opt.brightness = level
             }
-            if (s.onOff != 1) { send << power(1); opt.onOff = 1 }
             break
         case "setEffect":
             // args[0] is the driver's scene entry: [name, kind ("scene" or "diy"), API value].
@@ -1013,6 +1055,13 @@ Map planCommand(def cd, Map s, String cmd, List args) {
             return [send: [], optimistic: [:], error: "unknown command ${cmd}"]
     }
     return [send: send, optimistic: opt]
+}
+
+/** Turn the light on before what depends on it, when it's off. */
+private void powerOnFirst(Map s, List send, Map opt) {
+    if (s.onOff == 1 || opt.onOff == 1) return
+    send << power(1)
+    opt.onOff = 1
 }
 
 private Map power(int v) {
@@ -1385,6 +1434,12 @@ void apiControlResp(resp, Map data) {
     def cd = deviceById(data?.id as String)
     if (statusOf(resp) != 200 || (json?.code && json.code != 200)) {
         log.warn "Govee: ${cd?.displayName ?: data?.id}: ${data?.instance} failed (HTTP ${statusOf(resp)}${json?.msg ? ', ' + json.msg : ''})"
+        // Hubitat already shows the new value: read what the device really has.
+        if (cd) {
+            long wait = apiPauseLeft()
+            if (wait > 0) runIn((int) (wait / 1000) + 5, "refreshDevice", [data: [id: data.id], overwrite: false])
+            else refreshDevice([id: data.id])
+        }
         return
     }
     cd?.goveeSeen("api")
@@ -1392,7 +1447,8 @@ void apiControlResp(resp, Map data) {
 
 /** Read the state of quiet devices: those with no MQTT message lately, and fans (MQTT gives only their power). */
 void pollQuiet() {
-    if (!settings.apiKey) return
+    if (!settings.apiKey || apiPaused()) return
+    loadScenes()
     long cutoff = now() - QUIET_MS
     getGoveeDevices().each { cd ->
         Long last = LAST_IOT.get(cd.getDataValue("id"))
@@ -1404,6 +1460,10 @@ void pollQuiet() {
 void refreshDevice(Map data) {
     def cd = deviceById(data?.id as String)
     if (!cd || !settings.apiKey) return
+    if (apiPaused()) {
+        logDebug "${cd.displayName}: not read, the API asked us to slow down"
+        return
+    }
     Map body = [requestId: "hubitat-${now()}", payload: [sku: cd.getDataValue("sku"), device: data.id]]
     apiRequest("POST", "/device/state", body, "apiStateResp", [id: data.id])
 }
@@ -1444,10 +1504,31 @@ private void apiRequest(String method, String path, Map body, String callback, M
 private Map apiJson(resp) {
     noteRateLimits(resp)
     Map json = parseJson(bodyOf(resp))
-    if (statusOf(resp) == 429) log.warn "Govee: the API rate limit was reached; requests resume shortly"
+    if (statusOf(resp) == 429) noteRateLimited()
+    else if (statusOf(resp) == 200) API_BACKOFF.remove(app.id as Long)
     if (statusOf(resp) == 401) log.warn "Govee: the API key was rejected"
     return json
 }
+
+/** An HTTP 429: hold the API's reads back, longer each time it repeats. */
+private void noteRateLimited() {
+    Long key = app.id as Long
+    Map b = API_BACKOFF[key]
+    // Already waiting: requests sent before the first 429 are still answering.
+    if (b && now() < (b.until as long)) return
+    // Any success clears this, so an earlier entry means it's still limited.
+    long wait = b ? Math.min((b.wait as long) * 2, API_BACKOFF_MAX_MS) : API_BACKOFF_MIN_MS
+    API_BACKOFF[key] = [until: now() + wait, wait: wait]
+    log.warn "Govee: the API rate limit was reached; polls and refreshes wait ${(int) (wait / 60000)} minute(s), commands still go"
+}
+
+/** How long the API's reads still wait after a 429, in ms (0 when they don't). */
+long apiPauseLeft() {
+    Map b = API_BACKOFF[app.id as Long]
+    return b ? Math.max(0L, (b.until as long) - now()) : 0L
+}
+
+boolean apiPaused() { apiPauseLeft() > 0 }
 
 private void noteRateLimits(resp) {
     Map h = [:]

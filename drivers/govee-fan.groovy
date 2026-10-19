@@ -9,7 +9,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.4.2"
+@Field static final String DRIVER_VERSION = "0.4.3"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Fan"
 
@@ -22,7 +22,9 @@ import groovy.transform.Field
 @Field static final List FAN_MODES = ["Fixed speed", "Auto", "Sleep", "Nature", "Storm", "Custom"]
 
 metadata {
-    definition(name: "Govee Fan", namespace: "govee", author: "Digital Homesteaders", importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-fan.groovy") {
+    // One thing at a time per device: a command, a live report and an API read
+    // arriving together would otherwise each merge into state.gov and lose the others' changes.
+    definition(name: "Govee Fan", namespace: "govee", author: "Digital Homesteaders", singleThreaded: true, importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-fan.groovy") {
         capability "Actuator"
         capability "Switch"
         capability "FanControl"

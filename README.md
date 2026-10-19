@@ -118,7 +118,13 @@ appliances. See [`../govee-research/DESIGN.md`](../govee-research/DESIGN.md) for
   for a code only the first time) and doesn't clash with a Home Assistant install on the
   same account.
 - Rate limits: the API's remaining-request headers are shown on the app page. Polling
-  only reads fans and devices with no live report in 10 minutes.
+  only reads fans and devices with no live report in 10 minutes. After an HTTP 429,
+  polls, refreshes and scene lists wait a minute (doubling to 30 while it repeats);
+  commands still go.
+- A command the API rejects (offline, rate-limited) makes the app read the device's real
+  state back, so Hubitat doesn't keep showing a change that didn't happen.
+- During sign-in, the password waits for Govee's emailed code in memory only (never in
+  the app's state), for at most 15 minutes.
 
 ## Testing
 
@@ -172,3 +178,8 @@ Not yet tried on the hub:
 - [ ] Hold to dim from a button (Start/Stop Level Change) and Flash, on a LAN light and an
       API-only light (the Aura: slower steps, flash refused)
 - [ ] Reconnect after a hub reboot and after a network drop
+- [ ] 0.4.3 single-threaded light and fan drivers: commands, live reports and button
+      dimming still respond promptly, and nothing stalls (Hubitat queues each device's work)
+- [ ] 0.4.3 power on first: an off light given a colour or brightness comes on in that
+      colour (it may show its old colour for a moment)
+- [ ] 0.4.3 a colour picked in the Govee app while a scene runs clears the scene in Hubitat
