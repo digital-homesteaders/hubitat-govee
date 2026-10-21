@@ -19,24 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----------------------------------------------------------------------------
-
-Govee protocol details (account sign-in and 2FA, the AWS IoT session, MQTT
-command formats, Platform API capabilities) were learned from these projects,
-both MIT licensed:
-
-- govee-homeassistant, Copyright (c) 2021 Florian Lagg (@LaggAt) and
-  contributors: https://github.com/lasswellt/govee-homeassistant
-- govee2mqtt, Copyright (c) 2024-Present Wez Furlong:
-  https://github.com/wez/govee2mqtt
-
-Per-model scene encoding rules (which bytes each model expects before a
-scene's data) are protocol facts from AlgoClaw's decoding of the Govee app,
-https://github.com/AlgoClaw/Govee (no licence stated; no code copied: the
-rules are re-implemented in apps/govee-connect.groovy and checked against
-AlgoClaw's published frames, a few of which are in
-tests/fixtures/scene-rules.json).
-
-tests/fixtures/api-devices.json and scene-library-h6072.json are adapted from
-govee2mqtt's test data.

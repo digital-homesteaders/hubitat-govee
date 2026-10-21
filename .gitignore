@@ -3,3 +3,8 @@
 .tools/
 tests/build/
 dist/
+
+# Private, kept local
+CLAUDE.md
+docs/tester-guide.html
+scripts/build-tester-pack.sh

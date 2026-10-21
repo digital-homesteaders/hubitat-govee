@@ -16,7 +16,7 @@
  * device's merged state, so the light and fan drivers stay thin.
  *
  * Protocol details are ported from lasswellt/govee-homeassistant and
- * wez/govee2mqtt (both MIT License; see LICENSE).
+ * wez/govee2mqtt (both MIT License; see NOTICE).
  *
  * Copyright (c) 2026 Digital Homesteaders. MIT License.
  */
@@ -35,7 +35,7 @@ definition(
     singleInstance: true,
     iconUrl: "",
     iconX2Url: "",
-    importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/apps/govee-connect.groovy"
+    importUrl: "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/apps/govee-connect.groovy"
 )
 
 preferences {

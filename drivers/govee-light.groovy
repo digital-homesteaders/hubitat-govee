@@ -42,7 +42,7 @@ import java.util.concurrent.ConcurrentHashMap
 metadata {
     // One thing at a time per device: a command, a live report and an API read
     // arriving together would otherwise each merge into state.gov and lose the others' changes.
-    definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", singleThreaded: true, importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-light.groovy") {
+    definition(name: "Govee Light", namespace: "govee", author: "Digital Homesteaders", singleThreaded: true, importUrl: "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/drivers/govee-light.groovy") {
         capability "Actuator"
         capability "Light"
         capability "Switch"

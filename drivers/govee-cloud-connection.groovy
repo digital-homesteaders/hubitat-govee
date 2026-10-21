@@ -18,7 +18,7 @@
  * device on port 4003, each checked with a devStatus read straight after.
  *
  * Protocol ported from lasswellt/govee-homeassistant and wez/govee2mqtt
- * (MIT License; see LICENSE).
+ * (MIT License; see NOTICE).
  *
  * Copyright (c) 2026 Digital Homesteaders. MIT License.
  */
@@ -31,7 +31,7 @@ import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 
 metadata {
-    definition(name: "Govee Cloud Connection", namespace: "govee", author: "Digital Homesteaders", importUrl: "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-cloud-connection.groovy") {
+    definition(name: "Govee Cloud Connection", namespace: "govee", author: "Digital Homesteaders", importUrl: "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/drivers/govee-cloud-connection.groovy") {
         capability "Initialize"
         attribute "connection", "enum", ["connecting", "connected", "disconnected"]
         command "reconnect"

@@ -4,15 +4,15 @@
   "version": "0.4.3",
   "minimumHEVersion": "2.3.0",
   "dateReleased": "2026-10-18",
-  "documentationLink": "https://github.com/GITHUB_OWNER/hubitat-govee#readme",
-  "licenseFile": "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/LICENSE",
+  "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
+  "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
   "releaseNotes": "Correctness fixes: a failed API command reads the real state back; power on before brightness and colour; a scene ends when the light reports a new mode; API reads back off after a rate limit; failed scene lists retried in 30 minutes; unreadable MQTT bytes cleaned; the 2FA password kept in memory only; LAN stops with the last device; light and fan drivers single-threaded.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",
       "name": "Govee Connect",
       "namespace": "govee",
-      "location": "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/apps/govee-connect.groovy",
+      "location": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/apps/govee-connect.groovy",
       "required": true,
       "oauth": false,
       "primary": true
@@ -23,21 +23,21 @@
       "id": "92466bd5-fd36-41ab-916c-1f876a09a71d",
       "name": "Govee Cloud Connection",
       "namespace": "govee",
-      "location": "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-cloud-connection.groovy",
+      "location": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/drivers/govee-cloud-connection.groovy",
       "required": true
     },
     {
       "id": "065e08ec-c58c-43a0-84db-bb10e284e74c",
       "name": "Govee Light",
       "namespace": "govee",
-      "location": "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-light.groovy",
+      "location": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/drivers/govee-light.groovy",
       "required": true
     },
     {
       "id": "fffd6afb-f9f7-47a0-9410-8075def7e89f",
       "name": "Govee Fan",
       "namespace": "govee",
-      "location": "https://raw.githubusercontent.com/GITHUB_OWNER/hubitat-govee/main/drivers/govee-fan.groovy",
+      "location": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/drivers/govee-fan.groovy",
       "required": true
     }
   ]

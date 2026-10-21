@@ -44,9 +44,12 @@ An optional **Govee API key** adds the official Platform API, for:
 
 ### Hubitat Package Manager (recommended)
 
-Not published yet. Once the repository is on GitHub, run
-`scripts/set-github-owner.sh <owner>` to fill in the `GITHUB_OWNER` placeholders, then
-in HPM choose **Install → From a URL** and give it the raw URL of `packageManifest.json`.
+In **Hubitat Package Manager**, choose **Install → From a URL** and paste:
+
+```
+https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/packageManifest.json
+```
+
 HPM installs the app and all three drivers together and offers updates whenever a new
 version is released, so the files can't drift apart.
 
@@ -183,3 +186,13 @@ Not yet tried on the hub:
 - [ ] 0.4.3 power on first: an off light given a colour or brightness comes on in that
       colour (it may show its old colour for a moment)
 - [ ] 0.4.3 a colour picked in the Govee app while a scene runs clears the scene in Hubitat
+
+## Credits and license
+
+MIT License, Copyright (c) 2026 Digital Homesteaders; see [LICENSE](LICENSE).
+
+Govee protocol details come from
+[govee-homeassistant](https://github.com/lasswellt/govee-homeassistant) (Florian Lagg and
+contributors) and [govee2mqtt](https://github.com/wez/govee2mqtt) (Wez Furlong), both MIT
+licensed. Per-model scene rules follow [AlgoClaw's decoding](https://github.com/AlgoClaw/Govee)
+of the Govee app. Details are in [NOTICE](NOTICE). Not affiliated with or endorsed by Govee.
