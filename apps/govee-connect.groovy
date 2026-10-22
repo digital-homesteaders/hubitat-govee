@@ -48,7 +48,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.4.4"
+@Field static final String VERSION = "0.4.5"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -136,8 +136,9 @@ preferences {
 
 // Colour temperature range when the Platform API doesn't give one.
 @Field static final List CT_RANGE = [2000, 9000]
-// Govee fan mode names shown differently in Hubitat (either name is accepted).
-@Field static final Map MODE_LABELS = [FanSpeed: "Fixed speed"]
+// Govee fan mode names shown differently in Hubitat (either name is accepted). The
+// Platform API calls workMode 7 "Storm"; the Govee Home app shows it as Turbo.
+@Field static final Map MODE_LABELS = [FanSpeed: "Fixed speed", Storm: "Turbo"]
 
 // Hubitat's named fan speeds, slowest first, and the subsets used when a fan
 // has fewer than five steps.

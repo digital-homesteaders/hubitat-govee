@@ -1,12 +1,12 @@
 {
   "packageName": "Govee Connect",
   "author": "Digital Homesteaders",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "minimumHEVersion": "2.3.0",
   "dateReleased": "2026-10-21",
   "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Links point at github.com/digital-homesteaders: Import buttons and HPM install from the manifest URL now work. Upstream MIT notices (NOTICE) linked from LICENSE and the code headers. No behaviour changes.",
+  "releaseNotes": "Fans: Govee's Storm mode is shown as Turbo, matching the Govee Home app (setMode accepts either name).",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

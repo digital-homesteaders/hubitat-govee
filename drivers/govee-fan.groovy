@@ -9,7 +9,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.4.4"
+@Field static final String DRIVER_VERSION = "0.4.5"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Fan"
 
@@ -18,8 +18,8 @@ import groovy.transform.Field
 
 // Govee tower fans have 8 speed steps; the dropdowns can't vary per device.
 @Field static final List SPEED_LEVELS = ["1", "2", "3", "4", "5", "6", "7", "8"]
-// "Fixed speed" is Govee's FanSpeed mode (the app accepts either name).
-@Field static final List FAN_MODES = ["Fixed speed", "Auto", "Sleep", "Nature", "Storm", "Custom"]
+// "Fixed speed" is Govee's FanSpeed mode and "Turbo" its Storm mode (the app accepts either name).
+@Field static final List FAN_MODES = ["Fixed speed", "Auto", "Sleep", "Nature", "Turbo", "Custom"]
 
 metadata {
     // One thing at a time per device: a command, a live report and an API read

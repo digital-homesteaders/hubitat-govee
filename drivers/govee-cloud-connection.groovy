@@ -44,7 +44,7 @@ metadata {
     }
 }
 
-@Field static final String DRIVER_VERSION = "0.4.4"
+@Field static final String DRIVER_VERSION = "0.4.5"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Cloud Connection"
 @Field static final int CONNECT_WAIT_S = 5

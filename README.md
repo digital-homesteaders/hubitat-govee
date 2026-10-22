@@ -164,7 +164,7 @@ Not yet tried on the hub:
 - [x] H6052 once it's API-only: well under a second per press (2026-10-17)
 - [ ] The API fallback after an unconfirmed command
 - [x] H7101 fan (2026-10-17): on/off, speed levels 1-8, Auto/Sleep/Nature/FanSpeed, oscillation
-- [ ] H7111 fan
+- [x] H7111 fan (2026-10-21, Guest Room Fan): on/off, speed, Sleep, Nature, Custom
 - [x] LAN (0.2.0, 2026-10-17): Living Room H60B0 controlled locally, "super fast"
 - [ ] LAN on the other H60B0, H6022 and H619C
 - [x] Scenes and rapid on/off on the Living Room H60B0 (2026-10-17): stays correct and lit
@@ -189,7 +189,8 @@ Not yet tried on the hub:
 - [ ] Reconnect after a hub reboot and after a network drop
 - [x] HPM: Install → From a URL with the manifest link installs the app and three drivers
       (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
-- [ ] HPM: a new release shows up under Update
+- [ ] HPM: a new release shows up under Update (0.4.5 is the first to try)
+- [ ] 0.4.5 H7111 fan: the mode reads Turbo (not Storm), and Set Mode → Turbo works
 - [ ] The Import button on each Apps Code / Drivers Code page fetches the file from GitHub
 - [ ] 0.4.3 single-threaded light and fan drivers: commands, live reports and button
       dimming still respond promptly, and nothing stalls (Hubitat queues each device's work)
