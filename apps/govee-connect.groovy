@@ -1089,7 +1089,9 @@ String modeLabel(def name) { (MODE_LABELS[name?.toString()] ?: name?.toString())
 
 private Map planFanMode(Map caps, Map s, String name) {
     def m = (caps.modes ?: []).find { it[0].toString().equalsIgnoreCase(name) || modeLabel(it[0]).equalsIgnoreCase(name) }
-    if (!m) return [send: [], optimistic: [:], error: "this fan has no mode '${name}'"]
+    // The Set Mode dropdown is the same for every fan, so say which modes this one has.
+    if (!m) return [send: [], optimistic: [:], error: "this fan has no mode '${name}'" +
+        ((caps.modes ?: []) ? "; it has ${(caps.modes as List).collect { modeLabel(it[0]) }.join(', ')}" : "")]
     // The speed mode needs a step: go back to the last one used.
     if (m[1] == caps.speedMode) {
         List speeds = caps.speeds ?: []

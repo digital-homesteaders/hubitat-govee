@@ -208,6 +208,9 @@ check("fan modes: FanSpeed goes back to the last step; other modes read as on or
     // Govee's Storm mode is Turbo in the Govee Home app; both names work, Turbo is shown.
     assert plan("fan", [:], "setMode", ["Turbo"], caps).send[0].api.value == [workMode: 7, modeValue: 0]
     assert plan("fan", [:], "setMode", ["Storm"], caps).send[0].api.value == [workMode: 7, modeValue: 0]
+    // A mode this fan lacks (the dropdown is the same for every fan) names the ones it has.
+    Map noTurbo = caps + [modes: caps.modes.findAll { it[0] != "Storm" }]
+    assert plan("fan", [:], "setMode", ["Turbo"], noTurbo).error == "this fan has no mode 'Turbo'; it has Fixed speed, Custom, Auto, Sleep, Nature"
     assert events("fan", [onOff: 1, workMode: 7, modeValue: 0], caps).mode == "Turbo"
     assert events("fan", [onOff: 1], caps).supportedModes.contains('"Turbo"')
     assert plan("fan", [:], "setSpeedLevel", [6], caps).optimistic.lastSpeed == 6

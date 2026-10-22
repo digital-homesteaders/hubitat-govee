@@ -39,7 +39,7 @@ metadata {
         attribute "transport", "enum", ["local", "cloud-live", "cloud-api"]
 
         command "setSpeedLevel", [[name: "Speed (1 to 8)*", type: "ENUM", description: "The speed number as in the Govee app; a fan with fewer speeds uses its top one", constraints: SPEED_LEVELS]]
-        command "setMode", [[name: "Mode*", type: "ENUM", description: "Fixed speed uses the last speed number; the others are the Govee app's modes (supportedModes lists this fan's)", constraints: FAN_MODES]]
+        command "setMode", [[name: "Mode*", type: "ENUM", description: "Fixed speed uses the last speed number; the others are the Govee app's modes. Not every fan has every mode: supportedModes lists this fan's", constraints: FAN_MODES]]
         command "setOscillation", [[name: "Oscillation (swing side to side)*", type: "ENUM", constraints: ["on", "off"]]]
     }
     preferences {

@@ -191,6 +191,8 @@ Not yet tried on the hub:
       (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
 - [ ] HPM: a new release shows up under Update (0.4.5 is the first to try)
 - [ ] 0.4.5 H7111 fan: the mode reads Turbo (not Storm), and Set Mode → Turbo works
+- [ ] 0.4.5 H7101 fan: Set Mode → Turbo logs "this fan has no mode 'Turbo'; it has Fixed speed,
+      Custom, Auto, Sleep, Nature" (its API offers no Turbo, child lock or indicator light)
 - [ ] The Import button on each Apps Code / Drivers Code page fetches the file from GitHub
 - [ ] 0.4.3 single-threaded light and fan drivers: commands, live reports and button
       dimming still respond promptly, and nothing stalls (Hubitat queues each device's work)
