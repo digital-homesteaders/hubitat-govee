@@ -798,6 +798,37 @@ check("an HTTP 429 holds back polls, refreshes and scene lists, longer each time
     assert app.callsNamed("asynchttpPost").size() > posts
 }
 
+check("a rejected API key warns once, holds the API back an hour, and a new key or a success ends it") {
+    String key = app.settings.apiKey
+    app.settings.apiKey = "bad-key"
+    try {
+        int posts = app.callsNamed("asynchttpPost").size()
+        int warns = app.log.lines.count { it[1].contains("API key was rejected") }
+        3.times { app.apiStateResp(resp(401, [code: 401, message: "Invalid API Key"]), [id: FAN]) }
+        assert app.log.lines.count { it[1].contains("API key was rejected") } == warns + 1, "one warning for a burst"
+        assert app.apiKeyRejected() && app.apiPauseLeft() > 59 * 60 * 1000L
+        app.pollQuiet()
+        app.refreshDevice([id: FAN])
+        app.apiControlResp(resp(401, [code: 401]), [id: LAMP, instance: "powerSwitch"])
+        app.sendApi(LAMP, "H6117", [type: "devices.capabilities.on_off", instance: "powerSwitch", value: 1])
+        assert app.callsNamed("asynchttpPost").size() == posts
+        assert app.log.lines.any { it[1].contains("powerSwitch not sent") }
+        hub.advance(61 * 60 * 1000L)
+        assert !app.apiPaused() && app.apiKeyRejected(), "tried again after an hour; still known bad until it answers"
+        app.apiStateResp(resp(401, [code: 401]), [id: FAN])
+        assert app.log.lines.count { it[1].contains("API key was rejected") } == warns + 2, "warned again an hour later"
+        app.settings.apiKey = "new-key"
+        assert !app.apiKeyRejected() && !app.apiPaused(), "a new key goes straight away"
+        app.settings.apiKey = "bad-key"
+        app.apiStateResp(resp(401, [code: 401]), [id: FAN])
+        app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), [id: FAN])
+        assert !app.apiKeyRejected(), "a request that works clears it"
+    } finally {
+        app.settings.apiKey = key
+        hub.settle()
+    }
+}
+
 check("scene lists that fail to load are tried again in half an hour, not a day") {
     app.state.remove("scenesAt")
     hub.advance(31 * 60 * 1000L)
