@@ -6,7 +6,7 @@
   "dateReleased": "2026-10-21",
   "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Fans: Govee's Storm mode is shown as Turbo, matching the Govee Home app (setMode accepts either name). Choosing a mode a fan doesn't have (the Set Mode list is the same for every fan) logs which modes it does have.",
+  "releaseNotes": "Fans: Govee's Storm mode is shown as Turbo, matching the Govee Home app (setMode accepts either name). A refused command (a mode or scene the device doesn't have, Flash on an API-only light) shows why in a lastError state on the device page, cleared by the next command.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

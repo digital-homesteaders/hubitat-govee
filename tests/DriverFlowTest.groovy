@@ -634,6 +634,26 @@ check("fan: power over MQTT; speed, mode and oscillation over the API") {
     assert fan().currentValue("mode") == "Sleep" && fan().currentValue("oscillation") == "on"
 }
 
+check("light: an unknown scene is refused on the device page") {
+    lamp().setScene("No Such Scene Anywhere")
+    hub.settle()
+    assert lamp().currentValue("lastError")
+    lamp().on()
+    hub.settle()
+    assert lamp().currentValue("lastError") == null
+}
+
+check("fan: a mode it lacks is refused on the device page, and the next command clears it") {
+    int posts = app.callsNamed("asynchttpPost").size()
+    fan().setMode("Party")
+    hub.settle()
+    assert app.callsNamed("asynchttpPost").size() == posts
+    assert fan().currentValue("lastError").startsWith("this fan has no mode 'Party'; it has Fixed speed")
+    fan().setMode("Sleep")
+    hub.settle()
+    assert fan().currentValue("lastError") == null
+}
+
 check("fan: an MQTT power report triggers an API read, which fills in speed") {
     int runIns = app.callsNamed("runIn").size()
     mqtt([sku: "H7111", device: FAN, cmd: "status", state: [onOff: 1, result: 1]])

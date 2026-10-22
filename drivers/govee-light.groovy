@@ -57,6 +57,8 @@ metadata {
 
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "transport", "enum", ["local", "cloud-live", "cloud-api"]
+        // Why the last command was refused (cleared by the next command).
+        attribute "lastError", "string"
 
         // Hubitat's own labels for these say "level" and "duration"; Govee has no fades.
         command "setLevel", [[name: "Brightness*", type: "NUMBER", description: "Percent, 1 to 100 (0 turns the light off)"]]
@@ -151,7 +153,7 @@ void rampStep() {
 def flash(rateToFlash = null) {
     stopRunning()
     if (parent?.commandRoute(device) == "api") {
-        log.warn "${device.displayName}: can't flash: its commands go through the Govee API, which is too slow and rate-limited for that"
+        refuse("can't flash: its commands go through the Govee API, which is too slow and rate-limited for that")
         return
     }
     int rate = Math.max(FLASH_MIN_MS, (rateToFlash ?: FLASH_DEFAULT_MS) as int)
@@ -184,7 +186,7 @@ def setEffect(effect) {
     int n = (effect ?: 0) as int
     List order = effectOrder()
     if (n < 1 || n > order.size()) {
-        log.warn "${device.displayName}: no effect ${effect}: effects are numbered 1 to ${order.size()} (see lightEffects), or use Set Scene by name"
+        refuse("no effect ${effect}: effects are numbered 1 to ${order.size()} (see lightEffects), or use Set Scene by name")
         return
     }
     applyScene(order[n - 1] as int)
@@ -243,7 +245,7 @@ def setScene(String scene) {
     List names = (state.scenes ?: []).collect { (it[0] as String).toLowerCase() }
     int i = exact ? (numbers[exact] as int) - 1 : names.findIndexOf { it.contains(q.toLowerCase()) }
     if (i < 0) {
-        log.warn "${device.displayName}: no scene called '${scene}' (see lightEffects)"
+        refuse("no scene called '${scene}' (see lightEffects)")
         return
     }
     applyScene(i + 1)
@@ -286,12 +288,29 @@ void goveeScenes(String kind, List list) {
 /** `stepping` is true for a ramp or flash's own steps; any other command stops those. */
 private void sendGovee(String cmd, List args = [], boolean stepping = false) {
     if (!stepping) stopRunning()
+    clearRefused()
     Map optimistic = parent?.goveeCommand(device, state.gov ?: [:], cmd, args)
     // Show the change straight away; the light's own report follows.
     if (optimistic) merge(optimistic)
 }
 
 // ---------------------------------------------------------------- state from the app
+
+/** Called by the app when it refuses a command (a mode or scene this device doesn't have). */
+void goveeRefused(String why) {
+    sendEvent(name: "lastError", value: why, descriptionText: "${device.displayName}: ${why}".toString())
+}
+
+/** A command this driver turns down itself: warn, and show why on the device page. */
+private void refuse(String why) {
+    log.warn "${device.displayName}: ${why}"
+    goveeRefused(why)
+}
+
+private void clearRefused() {
+    if (device.currentValue("lastError") != null) device.deleteCurrentState("lastError")
+}
+
 
 /** Merge reported state; `source` is "iot" or "api". */
 void goveeUpdate(Map reported, String source) {

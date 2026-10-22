@@ -37,6 +37,8 @@ metadata {
         attribute "oscillation", "enum", ["on", "off"]
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "transport", "enum", ["local", "cloud-live", "cloud-api"]
+        // Why the last command was refused (cleared by the next command).
+        attribute "lastError", "string"
 
         command "setSpeedLevel", [[name: "Speed (1 to 8)*", type: "ENUM", description: "The speed number as in the Govee app; a fan with fewer speeds uses its top one", constraints: SPEED_LEVELS]]
         command "setMode", [[name: "Mode*", type: "ENUM", description: "Fixed speed uses the last speed number; the others are the Govee app's modes. Not every fan has every mode: supportedModes lists this fan's", constraints: FAN_MODES]]
@@ -76,11 +78,22 @@ def setMode(mode) { sendGovee("setMode", [mode]) }
 def setOscillation(value) { sendGovee("setOscillation", [value]) }
 
 private void sendGovee(String cmd, List args = []) {
+    clearRefused()
     Map optimistic = parent?.goveeCommand(device, state.gov ?: [:], cmd, args)
     if (optimistic) merge(optimistic)
 }
 
 // ---------------------------------------------------------------- state from the app
+
+/** Called by the app when it refuses a command (a mode or scene this device doesn't have). */
+void goveeRefused(String why) {
+    sendEvent(name: "lastError", value: why, descriptionText: "${device.displayName}: ${why}".toString())
+}
+
+private void clearRefused() {
+    if (device.currentValue("lastError") != null) device.deleteCurrentState("lastError")
+}
+
 
 void goveeUpdate(Map reported, String source) {
     goveeSeen(source)

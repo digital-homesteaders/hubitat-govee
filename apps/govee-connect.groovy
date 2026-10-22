@@ -1124,6 +1124,8 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
     Map plan = planCommand(cd, s ?: [:], cmd, args ?: [])
     if (plan.error) {
         log.warn "Govee: ${cd.displayName}: ${plan.error}"
+        // Shown on the device page too; drivers before 0.4.5 don't have it.
+        try { cd.goveeRefused(plan.error) } catch (e) { }
         return [:]
     }
     String id = cd.getDataValue("id")
