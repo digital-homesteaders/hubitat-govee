@@ -44,7 +44,13 @@ An optional **Govee API key** adds the official Platform API, for:
 
 ### Hubitat Package Manager (recommended)
 
-In **Hubitat Package Manager**, choose **Install → From a URL** and paste:
+This needs [Hubitat Package Manager](https://hubitatpackagemanager.hubitatcommunity.com/)
+(HPM), a community app that isn't built into Hubitat. If **Apps** doesn't list
+**Hubitat Package Manager**, install it first by following
+[its installation guide](https://hubitatpackagemanager.hubitatcommunity.com/installing.html),
+or skip to [Manually](#manually) below.
+
+Then in **Hubitat Package Manager**, choose **Install → From a URL** and paste:
 
 ```
 https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/packageManifest.json
