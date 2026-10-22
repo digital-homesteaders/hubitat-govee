@@ -1,12 +1,12 @@
 {
   "packageName": "Govee Connect",
   "author": "Digital Homesteaders",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "minimumHEVersion": "2.3.0",
-  "dateReleased": "2026-10-18",
+  "dateReleased": "2026-10-21",
   "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Correctness fixes: a failed API command reads the real state back; power on before brightness and colour; a scene ends when the light reports a new mode; API reads back off after a rate limit; failed scene lists retried in 30 minutes; unreadable MQTT bytes cleaned; the 2FA password kept in memory only; LAN stops with the last device; light and fan drivers single-threaded.",
+  "releaseNotes": "Links point at github.com/digital-homesteaders: Import buttons and HPM install from the manifest URL now work. Upstream MIT notices (NOTICE) linked from LICENSE and the code headers. No behaviour changes.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

@@ -18,7 +18,8 @@
  * device on port 4003, each checked with a devStatus read straight after.
  *
  * Protocol ported from lasswellt/govee-homeassistant and wez/govee2mqtt
- * (MIT License; see NOTICE).
+ * (MIT License; see NOTICE, also at
+ * https://github.com/digital-homesteaders/hubitat-govee/blob/main/NOTICE).
  *
  * Copyright (c) 2026 Digital Homesteaders. MIT License.
  */
@@ -43,7 +44,7 @@ metadata {
     }
 }
 
-@Field static final String DRIVER_VERSION = "0.4.3"
+@Field static final String DRIVER_VERSION = "0.4.4"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Cloud Connection"
 @Field static final int CONNECT_WAIT_S = 5

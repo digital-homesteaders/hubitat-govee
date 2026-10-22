@@ -16,7 +16,8 @@
  * device's merged state, so the light and fan drivers stay thin.
  *
  * Protocol details are ported from lasswellt/govee-homeassistant and
- * wez/govee2mqtt (both MIT License; see NOTICE).
+ * wez/govee2mqtt (both MIT License; see NOTICE, also at
+ * https://github.com/digital-homesteaders/hubitat-govee/blob/main/NOTICE).
  *
  * Copyright (c) 2026 Digital Homesteaders. MIT License.
  */
@@ -47,7 +48,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.4.3"
+@Field static final String VERSION = "0.4.4"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).

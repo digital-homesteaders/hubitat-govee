@@ -56,8 +56,8 @@ version is released, so the files can't drift apart.
 ### Manually
 
 Paste each file into Hubitat (**Apps Code** / **Drivers Code** → New → paste → Save).
-Once the repository is public, each code page's **Import** button fetches the file from
-its import URL instead of pasting.
+Or use each code page's **Import** button, which fetches the file from its import URL
+(the raw GitHub link in the file's header) instead of pasting.
 
 | File | Where |
 |---|---|
@@ -181,6 +181,10 @@ Not yet tried on the hub:
 - [ ] Hold to dim from a button (Start/Stop Level Change) and Flash, on a LAN light and an
       API-only light (the Aura: slower steps, flash refused)
 - [ ] Reconnect after a hub reboot and after a network drop
+- [ ] HPM: Install → From a URL with the manifest link installs the app and three drivers;
+      on a hub that already has the pasted files, HPM's Match Up adopts them, and a new
+      release shows up as an update
+- [ ] The Import button on each Apps Code / Drivers Code page fetches the file from GitHub
 - [ ] 0.4.3 single-threaded light and fan drivers: commands, live reports and button
       dimming still respond promptly, and nothing stalls (Hubitat queues each device's work)
 - [ ] 0.4.3 power on first: an off light given a colour or brightness comes on in that
