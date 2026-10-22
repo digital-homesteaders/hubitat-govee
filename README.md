@@ -187,9 +187,9 @@ Not yet tried on the hub:
 - [ ] Hold to dim from a button (Start/Stop Level Change) and Flash, on a LAN light and an
       API-only light (the Aura: slower steps, flash refused)
 - [ ] Reconnect after a hub reboot and after a network drop
-- [ ] HPM: Install → From a URL with the manifest link installs the app and three drivers;
-      on a hub that already has the pasted files, HPM's Match Up adopts them, and a new
-      release shows up as an update
+- [x] HPM: Install → From a URL with the manifest link installs the app and three drivers
+      (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
+- [ ] HPM: a new release shows up under Update
 - [ ] The Import button on each Apps Code / Drivers Code page fetches the file from GitHub
 - [ ] 0.4.3 single-threaded light and fan drivers: commands, live reports and button
       dimming still respond promptly, and nothing stalls (Hubitat queues each device's work)
