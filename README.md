@@ -187,6 +187,8 @@ Not yet tried on the hub:
 - [ ] Hold to dim from a button (Start/Stop Level Change) and Flash, on a LAN light and an
       API-only light (the Aura: slower steps, flash refused)
 - [ ] Reconnect after a hub reboot and after a network drop
+- [ ] A bad API key (0.4.7): one "API key was rejected" warning an hour, not one per request
+      every poll; the app page says the key was rejected; a corrected key and Done clear it
 - [x] HPM: Install → From a URL with the manifest link installs the app and three drivers
       (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
 - [ ] HPM: a new release shows up under Update (0.4.5 is the first to try)

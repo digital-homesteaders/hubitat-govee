@@ -1,12 +1,12 @@
 {
   "packageName": "Govee Connect",
   "author": "Digital Homesteaders",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "minimumHEVersion": "2.3.0",
   "dateReleased": "2026-10-22",
   "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Since 0.4.4: fans show Govee's Storm mode as Turbo, as the Govee Home app does; rules that check for mode Storm need Turbo (Set Mode still accepts Storm). A refused command (a mode or scene the device doesn't have, an empty scene name, Flash on an API-only light, fan modes without the API key) shows why in lastError on the device page until the next command. Set Effect takes a scene name too. Clearer fix-it text when driver code is out of date or in the wrong entry (Package Manager or pasted). The Set Mode tooltip explains Custom.",
+  "releaseNotes": "Since 0.4.6: a rejected Govee API key no longer floods the log. The app warns once, pauses API reads (polls, refreshes, scene lists) for an hour, skips API commands with a warning, and shows the problem under the API key on the app page. It tries again straight away when the key changes or you press Done, and clears as soon as a request works. No reported values change.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

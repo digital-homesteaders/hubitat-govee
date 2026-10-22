@@ -48,7 +48,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.4.6"
+@Field static final String VERSION = "0.4.7"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -102,6 +102,11 @@ preferences {
 @Field static final ConcurrentHashMap<Long, Map> API_BACKOFF = new ConcurrentHashMap<>()
 @Field static final long API_BACKOFF_MIN_MS = 60 * 1000L
 @Field static final long API_BACKOFF_MAX_MS = 30 * 60 * 1000L
+// After the API key is rejected (HTTP 401) the API's reads wait an hour, and its
+// commands are skipped, until the key changes, Done is pressed or a request works.
+// By app id: [key: the key's hash, until: ms].
+@Field static final ConcurrentHashMap<Long, Map> API_KEY_BAD = new ConcurrentHashMap<>()
+@Field static final long API_KEY_RETRY_MS = 60 * 60 * 1000L
 // A light's scene lists that failed to load are tried again after this long.
 @Field static final ConcurrentHashMap<String, Long> SCENES_TRIED = new ConcurrentHashMap<>()
 @Field static final long SCENES_RETRY_MS = 30 * 60 * 1000L
@@ -204,6 +209,8 @@ def mainPage() {
             paragraph "Needed for fan speed, mode and oscillation, for devices that don't report over Govee's live connection, " +
                 "and as a fallback when a live command isn't confirmed. Request one in the Govee Home app: Profile > Settings > Apply for API Key."
             input "apiKey", "password", title: "Govee API key", required: false
+            if (apiKeyRejected()) paragraph "<b>Govee rejected this API key.</b> The app tries it again hourly, or when you press Done. " +
+                "Check it was copied whole; requesting a new key in the Govee Home app cancels the old one."
             input "pollMinutes", "enum", title: "Check devices that haven't sent a live update recently (using the API) every", options: POLL_CHOICES, defaultValue: "5", required: true
             if (state.rate) paragraph "API requests left today: ${state.rate.day ?: '?'}; this minute: ${state.rate.minute ?: '?'}"
         }
@@ -315,6 +322,8 @@ String goveeVersion() { VERSION }
 
 void initialize() {
     unschedule()
+    // Done tries the API key again.
+    API_KEY_BAD.remove(app.id as Long)
     log.info "Govee Connect ${VERSION}"
     syncChildren()
     // Drivers too old to answer are from an earlier version as well.
@@ -1432,6 +1441,10 @@ private void sendApi(String id, String sku, Map cap) {
         log.warn "Govee: ${cap.instance} needs the Govee API key (or the live connection)"
         return
     }
+    if (apiKeyRejected()) {
+        log.warn "Govee: ${deviceById(id)?.displayName ?: id}: ${cap.instance} not sent: Govee rejected the API key"
+        return
+    }
     Map body = [requestId: "hubitat-${now()}", payload: [sku: sku, device: id, capability: cap]]
     apiRequest("POST", "/device/control", body, "apiControlResp", [id: id, instance: cap.instance])
 }
@@ -1442,7 +1455,7 @@ void apiControlResp(resp, Map data) {
     if (statusOf(resp) != 200 || (json?.code && json.code != 200)) {
         log.warn "Govee: ${cd?.displayName ?: data?.id}: ${data?.instance} failed (HTTP ${statusOf(resp)}${json?.msg ? ', ' + json.msg : ''})"
         // Hubitat already shows the new value: read what the device really has.
-        if (cd) {
+        if (cd && !apiKeyRejected()) {
             long wait = apiPauseLeft()
             if (wait > 0) runIn((int) (wait / 1000) + 5, "refreshDevice", [data: [id: data.id], overwrite: false])
             else refreshDevice([id: data.id])
@@ -1512,9 +1525,31 @@ private Map apiJson(resp) {
     noteRateLimits(resp)
     Map json = parseJson(bodyOf(resp))
     if (statusOf(resp) == 429) noteRateLimited()
-    else if (statusOf(resp) == 200) API_BACKOFF.remove(app.id as Long)
-    if (statusOf(resp) == 401) log.warn "Govee: the API key was rejected"
+    else if (statusOf(resp) == 200) {
+        API_BACKOFF.remove(app.id as Long)
+        API_KEY_BAD.remove(app.id as Long)
+    }
+    if (statusOf(resp) == 401 || json?.code == 401) noteKeyRejected()
     return json
+}
+
+/** An HTTP 401: warn once, then hold the API back until the key changes or an hour passes. */
+private void noteKeyRejected() {
+    // Requests sent before the first 401 are still answering.
+    if (apiKeyPauseLeft() > 0) return
+    API_KEY_BAD[app.id as Long] = [key: (settings.apiKey as String)?.hashCode(), until: now() + API_KEY_RETRY_MS]
+    log.warn "Govee: the API key was rejected; the API waits an hour (or until the key changes or you press Done). " +
+        "Check the key in Govee Connect, or request a new one in the Govee Home app"
+}
+
+/** Whether Govee rejected the API key now set (and no request has worked since). */
+boolean apiKeyRejected() {
+    Map b = API_KEY_BAD[app.id as Long]
+    return b != null && b.key == (settings.apiKey as String)?.hashCode()
+}
+
+private long apiKeyPauseLeft() {
+    return apiKeyRejected() ? Math.max(0L, (API_KEY_BAD[app.id as Long].until as long) - now()) : 0L
 }
 
 /** An HTTP 429: hold the API's reads back, longer each time it repeats. */
@@ -1529,10 +1564,11 @@ private void noteRateLimited() {
     log.warn "Govee: the API rate limit was reached; polls and refreshes wait ${(int) (wait / 60000)} minute(s), commands still go"
 }
 
-/** How long the API's reads still wait after a 429, in ms (0 when they don't). */
+/** How long the API's reads still wait after a 429 or a rejected key, in ms (0 when they don't). */
 long apiPauseLeft() {
     Map b = API_BACKOFF[app.id as Long]
-    return b ? Math.max(0L, (b.until as long) - now()) : 0L
+    long limited = b ? Math.max(0L, (b.until as long) - now()) : 0L
+    return Math.max(limited, apiKeyPauseLeft())
 }
 
 boolean apiPaused() { apiPauseLeft() > 0 }
