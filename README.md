@@ -44,7 +44,13 @@ An optional **Govee API key** adds the official Platform API, for:
 
 ### Hubitat Package Manager (recommended)
 
-In **Hubitat Package Manager**, choose **Install → From a URL** and paste:
+This needs [Hubitat Package Manager](https://hubitatpackagemanager.hubitatcommunity.com/)
+(HPM), a community app that isn't built into Hubitat. If **Apps** doesn't list
+**Hubitat Package Manager**, install it first by following
+[its installation guide](https://hubitatpackagemanager.hubitatcommunity.com/installing.html),
+or skip to [Manually](#manually) below.
+
+Then in **Hubitat Package Manager**, choose **Install → From a URL** and paste:
 
 ```
 https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/packageManifest.json
@@ -56,8 +62,8 @@ version is released, so the files can't drift apart.
 ### Manually
 
 Paste each file into Hubitat (**Apps Code** / **Drivers Code** → New → paste → Save).
-Once the repository is public, each code page's **Import** button fetches the file from
-its import URL instead of pasting.
+Or use each code page's **Import** button, which fetches the file from its import URL
+(the raw GitHub link in the file's header) instead of pasting.
 
 | File | Where |
 |---|---|
@@ -158,7 +164,7 @@ Not yet tried on the hub:
 - [x] H6052 once it's API-only: well under a second per press (2026-10-17)
 - [ ] The API fallback after an unconfirmed command
 - [x] H7101 fan (2026-10-17): on/off, speed levels 1-8, Auto/Sleep/Nature/FanSpeed, oscillation
-- [ ] H7111 fan
+- [x] H7111 fan (2026-10-21, Guest Room Fan): on/off, speed, Sleep, Nature, Custom
 - [x] LAN (0.2.0, 2026-10-17): Living Room H60B0 controlled locally, "super fast"
 - [ ] LAN on the other H60B0, H6022 and H619C
 - [x] Scenes and rapid on/off on the Living Room H60B0 (2026-10-17): stays correct and lit
@@ -181,6 +187,18 @@ Not yet tried on the hub:
 - [ ] Hold to dim from a button (Start/Stop Level Change) and Flash, on a LAN light and an
       API-only light (the Aura: slower steps, flash refused)
 - [ ] Reconnect after a hub reboot and after a network drop
+- [x] HPM: Install → From a URL with the manifest link installs the app and three drivers
+      (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
+- [ ] HPM: a new release shows up under Update (0.4.5 is the first to try)
+- [ ] 0.4.5 H7111 fan: the mode reads Turbo (not Storm), and Set Mode → Turbo works (rules that
+      checked for Storm need Turbo)
+- [ ] 0.4.5 H7101 fan: Set Mode → Turbo shows lastError "this fan has no mode 'Turbo'; it has
+      Fixed speed, Custom, Auto, Sleep, Nature" under Current States (its API offers no Turbo,
+      child lock or indicator light), and the next command clears it
+- [ ] 0.4.5 lights: Set Scene with a made-up name, and Flash on the H6052, show lastError
+- [ ] 0.4.6 the app page's driver warnings name both fixes (Package Manager's Update, or pasting)
+      and suggest checking each device's Type
+- [ ] The Import button on each Apps Code / Drivers Code page fetches the file from GitHub
 - [ ] 0.4.3 single-threaded light and fan drivers: commands, live reports and button
       dimming still respond promptly, and nothing stalls (Hubitat queues each device's work)
 - [ ] 0.4.3 power on first: an off light given a colour or brightness comes on in that

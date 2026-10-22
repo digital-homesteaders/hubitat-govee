@@ -12,7 +12,7 @@
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
 
-@Field static final String DRIVER_VERSION = "0.4.3"
+@Field static final String DRIVER_VERSION = "0.4.6"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Light"
 
@@ -57,6 +57,8 @@ metadata {
 
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "transport", "enum", ["local", "cloud-live", "cloud-api"]
+        // Why the last command was refused (cleared by the next command).
+        attribute "lastError", "string"
 
         // Hubitat's own labels for these say "level" and "duration"; Govee has no fades.
         command "setLevel", [[name: "Brightness*", type: "NUMBER", description: "Percent, 1 to 100 (0 turns the light off)"]]
@@ -92,6 +94,7 @@ def updated() {
 }
 
 def refresh() {
+    clearRefused()
     parent?.refreshFromDriver(device)
 }
 
@@ -115,6 +118,7 @@ def setColorTemperature(temp, level = null, transitionTime = null) { sendGovee("
 /** A button held: step brightness up or down until stopLevelChange (release). */
 def startLevelChange(direction) {
     stopRunning()
+    clearRefused()
     boolean up = direction?.toString() != "down"
     boolean on = device.currentValue("switch") == "on"
     // Dimming down a light that's off does nothing; brightening it starts from the bottom.
@@ -128,6 +132,7 @@ def startLevelChange(direction) {
 
 /** The button released. */
 def stopLevelChange() {
+    clearRefused()
     RAMP.remove(device.idAsLong)
     unschedule("rampStep")
 }
@@ -150,8 +155,9 @@ void rampStep() {
 /** Blink FLASH_TIMES times, ending as it started. Any other command stops it. */
 def flash(rateToFlash = null) {
     stopRunning()
+    clearRefused()
     if (parent?.commandRoute(device) == "api") {
-        log.warn "${device.displayName}: can't flash: its commands go through the Govee API, which is too slow and rate-limited for that"
+        refuse("can't flash: its commands go through the Govee API, which is too slow and rate-limited for that")
         return
     }
     int rate = Math.max(FLASH_MIN_MS, (rateToFlash ?: FLASH_DEFAULT_MS) as int)
@@ -181,10 +187,17 @@ private void stopRunning() {
 // Scenes, numbered as in the lightEffects attribute (Govee scenes first, then DIY).
 // With favorites picked, the effects are just the favorites, numbered 1, 2, 3...
 def setEffect(effect) {
-    int n = (effect ?: 0) as int
+    clearRefused()
+    String e = (effect ?: "").toString().trim()
+    // A name rather than a number: treat it as Set Scene.
+    if (e && !(e ==~ /\d+/)) {
+        setScene(e)
+        return
+    }
+    int n = e ? (e as int) : 0
     List order = effectOrder()
     if (n < 1 || n > order.size()) {
-        log.warn "${device.displayName}: no effect ${effect}: effects are numbered 1 to ${order.size()} (see lightEffects), or use Set Scene by name"
+        refuse("no effect ${effect}: effects are numbered 1 to ${order.size()} (see lightEffects), or use Set Scene by name")
         return
     }
     applyScene(order[n - 1] as int)
@@ -220,6 +233,7 @@ def setPreviousEffect() { stepEffect(-1) }
 
 /** Step through the favorite scenes (or all of them), wrapping around. */
 private void stepEffect(int delta) {
+    clearRefused()
     List order = effectOrder()
     if (!order) return
     int cur = (state.effectIndex ?: 0) as int
@@ -231,7 +245,13 @@ private void stepEffect(int delta) {
 
 /** A scene by name (exact, else the first containing it, ignoring case) or by number. */
 def setScene(String scene) {
+    clearRefused()
     String q = (scene ?: "").trim()
+    // Every name contains "", so an empty one would pick the first scene.
+    if (!q) {
+        refuse("Set Scene needs a scene name or number (see lightEffects)")
+        return
+    }
     if (q ==~ /\d+/) {
         setEffect(q as int)
         return
@@ -243,7 +263,7 @@ def setScene(String scene) {
     List names = (state.scenes ?: []).collect { (it[0] as String).toLowerCase() }
     int i = exact ? (numbers[exact] as int) - 1 : names.findIndexOf { it.contains(q.toLowerCase()) }
     if (i < 0) {
-        log.warn "${device.displayName}: no scene called '${scene}' (see lightEffects)"
+        refuse("no scene called '${scene}' (see lightEffects)")
         return
     }
     applyScene(i + 1)
@@ -285,13 +305,29 @@ void goveeScenes(String kind, List list) {
 
 /** `stepping` is true for a ramp or flash's own steps; any other command stops those. */
 private void sendGovee(String cmd, List args = [], boolean stepping = false) {
-    if (!stepping) stopRunning()
+    if (!stepping) {
+        stopRunning()
+        clearRefused()
+    }
     Map optimistic = parent?.goveeCommand(device, state.gov ?: [:], cmd, args)
+    if (optimistic?.refused) refuse(optimistic.refused as String)
     // Show the change straight away; the light's own report follows.
-    if (optimistic) merge(optimistic)
+    else if (optimistic) merge(optimistic)
 }
 
 // ---------------------------------------------------------------- state from the app
+
+/** A command turned down (by the app or this driver): warn, and show why on the device page. */
+private void refuse(String why) {
+    log.warn "${device.displayName}: ${why}"
+    sendEvent(name: "lastError", value: why, descriptionText: "${device.displayName}: ${why}".toString())
+}
+
+/** Every command starts by clearing the last refusal. */
+private void clearRefused() {
+    if (device.currentValue("lastError") != null) device.deleteCurrentState("lastError")
+}
+
 
 /** Merge reported state; `source` is "iot" or "api". */
 void goveeUpdate(Map reported, String source) {
@@ -347,15 +383,15 @@ private void dropOldAttributes() {
     OLD_ATTRIBUTES.each { if (device.currentValue(it) != null) device.deleteCurrentState(it) }
 }
 
-/** Warn when this driver and the app come from different versions (a file wasn't re-pasted). */
+/** Warn when this driver and the app come from different versions (a file wasn't updated). */
 private void checkVersion() {
     if (device.getDataValue("driverVersion") != DRIVER_VERSION) device.updateDataValue("driverVersion", DRIVER_VERSION)
     // The device page's Data shows which driver code and version this device runs.
     if (device.getDataValue("driverName") != DRIVER_NAME) device.updateDataValue("driverName", DRIVER_NAME)
     // Code pasted into the wrong Drivers Code entry: say so rather than act oddly.
     String kind = device.getDataValue("kind")
-    if (kind && kind != "light") log.warn "Govee: ${device.displayName} is a ${kind} but runs the ${DRIVER_NAME} driver code: re-paste each driver into its own Drivers Code entry (or set this device's Type to Govee Fan)"
+    if (kind && kind != "light") log.warn "Govee: ${device.displayName} is a ${kind} but runs the ${DRIVER_NAME} driver code: set this device's Type to Govee Fan, or paste the right code into this Drivers Code entry"
     String appVersion = null
     try { appVersion = parent?.goveeVersion() } catch (e) { }
-    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: re-paste the app and all drivers from the same version"
+    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: update them together (Hubitat Package Manager's Update, or paste the app and all drivers from the same version)"
 }

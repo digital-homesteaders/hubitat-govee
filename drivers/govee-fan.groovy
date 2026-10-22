@@ -9,7 +9,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.4.3"
+@Field static final String DRIVER_VERSION = "0.4.6"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Fan"
 
@@ -18,8 +18,8 @@ import groovy.transform.Field
 
 // Govee tower fans have 8 speed steps; the dropdowns can't vary per device.
 @Field static final List SPEED_LEVELS = ["1", "2", "3", "4", "5", "6", "7", "8"]
-// "Fixed speed" is Govee's FanSpeed mode (the app accepts either name).
-@Field static final List FAN_MODES = ["Fixed speed", "Auto", "Sleep", "Nature", "Storm", "Custom"]
+// "Fixed speed" is Govee's FanSpeed mode and "Turbo" its Storm mode (the app accepts either name).
+@Field static final List FAN_MODES = ["Fixed speed", "Auto", "Sleep", "Nature", "Turbo", "Custom"]
 
 metadata {
     // One thing at a time per device: a command, a live report and an API read
@@ -37,9 +37,11 @@ metadata {
         attribute "oscillation", "enum", ["on", "off"]
         attribute "healthStatus", "enum", ["online", "offline"]
         attribute "transport", "enum", ["local", "cloud-live", "cloud-api"]
+        // Why the last command was refused (cleared by the next command).
+        attribute "lastError", "string"
 
         command "setSpeedLevel", [[name: "Speed (1 to 8)*", type: "ENUM", description: "The speed number as in the Govee app; a fan with fewer speeds uses its top one", constraints: SPEED_LEVELS]]
-        command "setMode", [[name: "Mode*", type: "ENUM", description: "Fixed speed uses the last speed number; the others are the Govee app's modes (supportedModes lists this fan's)", constraints: FAN_MODES]]
+        command "setMode", [[name: "Mode*", type: "ENUM", description: "Fixed speed uses the last speed number; Custom runs the program set in the Govee app; the others are the Govee app's modes. Not every fan has every mode: supportedModes lists this fan's", constraints: FAN_MODES]]
         command "setOscillation", [[name: "Oscillation (swing side to side)*", type: "ENUM", constraints: ["on", "off"]]]
     }
     preferences {
@@ -62,6 +64,7 @@ def updated() {
 }
 
 def refresh() {
+    clearRefused()
     parent?.refreshFromDriver(device)
 }
 
@@ -76,11 +79,25 @@ def setMode(mode) { sendGovee("setMode", [mode]) }
 def setOscillation(value) { sendGovee("setOscillation", [value]) }
 
 private void sendGovee(String cmd, List args = []) {
+    clearRefused()
     Map optimistic = parent?.goveeCommand(device, state.gov ?: [:], cmd, args)
-    if (optimistic) merge(optimistic)
+    if (optimistic?.refused) refuse(optimistic.refused as String)
+    else if (optimistic) merge(optimistic)
 }
 
 // ---------------------------------------------------------------- state from the app
+
+/** A command turned down (by the app or this driver): warn, and show why on the device page. */
+private void refuse(String why) {
+    log.warn "${device.displayName}: ${why}"
+    sendEvent(name: "lastError", value: why, descriptionText: "${device.displayName}: ${why}".toString())
+}
+
+/** Every command starts by clearing the last refusal. */
+private void clearRefused() {
+    if (device.currentValue("lastError") != null) device.deleteCurrentState("lastError")
+}
+
 
 void goveeUpdate(Map reported, String source) {
     goveeSeen(source)
@@ -128,15 +145,15 @@ private void logDebug(String msg) {
 /** Called by the app on Done: record this driver's version and compare it with the app's. */
 void goveeHello() { checkVersion() }
 
-/** Warn when this driver and the app come from different versions (a file wasn't re-pasted). */
+/** Warn when this driver and the app come from different versions (a file wasn't updated). */
 private void checkVersion() {
     if (device.getDataValue("driverVersion") != DRIVER_VERSION) device.updateDataValue("driverVersion", DRIVER_VERSION)
     // The device page's Data shows which driver code and version this device runs.
     if (device.getDataValue("driverName") != DRIVER_NAME) device.updateDataValue("driverName", DRIVER_NAME)
     // Code pasted into the wrong Drivers Code entry: say so rather than act oddly.
     String kind = device.getDataValue("kind")
-    if (kind && kind != "fan") log.warn "Govee: ${device.displayName} is a ${kind} but runs the ${DRIVER_NAME} driver code: re-paste each driver into its own Drivers Code entry (or set this device's Type to Govee Light)"
+    if (kind && kind != "fan") log.warn "Govee: ${device.displayName} is a ${kind} but runs the ${DRIVER_NAME} driver code: set this device's Type to Govee Light, or paste the right code into this Drivers Code entry"
     String appVersion = null
     try { appVersion = parent?.goveeVersion() } catch (e) { }
-    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: re-paste the app and all drivers from the same version"
+    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: update them together (Hubitat Package Manager's Update, or paste the app and all drivers from the same version)"
 }

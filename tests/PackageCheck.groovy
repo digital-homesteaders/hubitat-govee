@@ -14,8 +14,8 @@ Map m = new JsonSlurper().parse(new File(root, "packageManifest.json")) as Map
 List<Map> entries = ((m.apps ?: []) + (m.drivers ?: [])) as List<Map>
 List<File> files = (new File(root, "apps").listFiles() + new File(root, "drivers").listFiles())
     .findAll { it.name.endsWith(".groovy") }.sort { it.path }
-// After scripts/set-github-owner.sh the placeholder is a real name: accept any owner.
-String basePattern = /https:\/\/raw\.githubusercontent\.com\/[A-Za-z0-9_-]+\/hubitat-govee\/main\//
+// The repository lives under the digital-homesteaders organisation; nothing else is valid.
+String basePattern = /https:\/\/raw\.githubusercontent\.com\/digital-homesteaders\/hubitat-govee\/main\//
 
 String relPath(File f) { f.parentFile.name + "/" + f.name }
 
@@ -63,6 +63,13 @@ check("manifest ids are unique UUIDs and the licence exists") {
     List ids = entries*.id
     assert ids.every { it ==~ /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/ } && ids.unique(false).size() == ids.size()
     assert new File(root, (m.licenseFile as String).replaceFirst(basePattern, "")).exists()
+}
+
+check("the upstream MIT notice ships: LICENSE points at NOTICE, which carries the permission text") {
+    String notice = new File(root, "NOTICE").text
+    assert new File(root, "LICENSE").text.contains("https://github.com/digital-homesteaders/hubitat-govee/blob/main/NOTICE")
+    assert notice.contains("Wez Furlong") && notice.contains("Florian Lagg") && notice.contains("Permission is hereby granted")
+    files.findAll { it.text.contains("see NOTICE") }.each { assert it.text.contains("blob/main/NOTICE"), it.name }
 }
 
 Check.finish()

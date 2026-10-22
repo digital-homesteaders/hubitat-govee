@@ -1,12 +1,12 @@
 {
   "packageName": "Govee Connect",
   "author": "Digital Homesteaders",
-  "version": "0.4.3",
+  "version": "0.4.6",
   "minimumHEVersion": "2.3.0",
-  "dateReleased": "2026-10-18",
+  "dateReleased": "2026-10-22",
   "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Correctness fixes: a failed API command reads the real state back; power on before brightness and colour; a scene ends when the light reports a new mode; API reads back off after a rate limit; failed scene lists retried in 30 minutes; unreadable MQTT bytes cleaned; the 2FA password kept in memory only; LAN stops with the last device; light and fan drivers single-threaded.",
+  "releaseNotes": "Since 0.4.4: fans show Govee's Storm mode as Turbo, as the Govee Home app does; rules that check for mode Storm need Turbo (Set Mode still accepts Storm). A refused command (a mode or scene the device doesn't have, an empty scene name, Flash on an API-only light, fan modes without the API key) shows why in lastError on the device page until the next command. Set Effect takes a scene name too. Clearer fix-it text when driver code is out of date or in the wrong entry (Package Manager or pasted). The Set Mode tooltip explains Custom.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",
