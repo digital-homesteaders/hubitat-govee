@@ -190,7 +190,8 @@ Not yet tried on the hub:
 - [x] HPM: Install → From a URL with the manifest link installs the app and three drivers
       (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
 - [ ] HPM: a new release shows up under Update (0.4.5 is the first to try)
-- [ ] 0.4.5 H7111 fan: the mode reads Turbo (not Storm), and Set Mode → Turbo works
+- [ ] 0.4.5 H7111 fan: the mode reads Turbo (not Storm), and Set Mode → Turbo works (rules that
+      checked for Storm need Turbo)
 - [ ] 0.4.5 H7101 fan: Set Mode → Turbo shows lastError "this fan has no mode 'Turbo'; it has
       Fixed speed, Custom, Auto, Sleep, Nature" under Current States (its API offers no Turbo,
       child lock or indicator light), and the next command clears it

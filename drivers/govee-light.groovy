@@ -94,6 +94,7 @@ def updated() {
 }
 
 def refresh() {
+    clearRefused()
     parent?.refreshFromDriver(device)
 }
 
@@ -117,6 +118,7 @@ def setColorTemperature(temp, level = null, transitionTime = null) { sendGovee("
 /** A button held: step brightness up or down until stopLevelChange (release). */
 def startLevelChange(direction) {
     stopRunning()
+    clearRefused()
     boolean up = direction?.toString() != "down"
     boolean on = device.currentValue("switch") == "on"
     // Dimming down a light that's off does nothing; brightening it starts from the bottom.
@@ -130,6 +132,7 @@ def startLevelChange(direction) {
 
 /** The button released. */
 def stopLevelChange() {
+    clearRefused()
     RAMP.remove(device.idAsLong)
     unschedule("rampStep")
 }
@@ -152,6 +155,7 @@ void rampStep() {
 /** Blink FLASH_TIMES times, ending as it started. Any other command stops it. */
 def flash(rateToFlash = null) {
     stopRunning()
+    clearRefused()
     if (parent?.commandRoute(device) == "api") {
         refuse("can't flash: its commands go through the Govee API, which is too slow and rate-limited for that")
         return
@@ -183,7 +187,14 @@ private void stopRunning() {
 // Scenes, numbered as in the lightEffects attribute (Govee scenes first, then DIY).
 // With favorites picked, the effects are just the favorites, numbered 1, 2, 3...
 def setEffect(effect) {
-    int n = (effect ?: 0) as int
+    clearRefused()
+    String e = (effect ?: "").toString().trim()
+    // A name rather than a number: treat it as Set Scene.
+    if (e && !(e ==~ /\d+/)) {
+        setScene(e)
+        return
+    }
+    int n = e ? (e as int) : 0
     List order = effectOrder()
     if (n < 1 || n > order.size()) {
         refuse("no effect ${effect}: effects are numbered 1 to ${order.size()} (see lightEffects), or use Set Scene by name")
@@ -222,6 +233,7 @@ def setPreviousEffect() { stepEffect(-1) }
 
 /** Step through the favorite scenes (or all of them), wrapping around. */
 private void stepEffect(int delta) {
+    clearRefused()
     List order = effectOrder()
     if (!order) return
     int cur = (state.effectIndex ?: 0) as int
@@ -233,7 +245,13 @@ private void stepEffect(int delta) {
 
 /** A scene by name (exact, else the first containing it, ignoring case) or by number. */
 def setScene(String scene) {
+    clearRefused()
     String q = (scene ?: "").trim()
+    // Every name contains "", so an empty one would pick the first scene.
+    if (!q) {
+        refuse("Set Scene needs a scene name or number (see lightEffects)")
+        return
+    }
     if (q ==~ /\d+/) {
         setEffect(q as int)
         return
@@ -287,26 +305,25 @@ void goveeScenes(String kind, List list) {
 
 /** `stepping` is true for a ramp or flash's own steps; any other command stops those. */
 private void sendGovee(String cmd, List args = [], boolean stepping = false) {
-    if (!stepping) stopRunning()
-    clearRefused()
+    if (!stepping) {
+        stopRunning()
+        clearRefused()
+    }
     Map optimistic = parent?.goveeCommand(device, state.gov ?: [:], cmd, args)
+    if (optimistic?.refused) refuse(optimistic.refused as String)
     // Show the change straight away; the light's own report follows.
-    if (optimistic) merge(optimistic)
+    else if (optimistic) merge(optimistic)
 }
 
 // ---------------------------------------------------------------- state from the app
 
-/** Called by the app when it refuses a command (a mode or scene this device doesn't have). */
-void goveeRefused(String why) {
+/** A command turned down (by the app or this driver): warn, and show why on the device page. */
+private void refuse(String why) {
+    log.warn "${device.displayName}: ${why}"
     sendEvent(name: "lastError", value: why, descriptionText: "${device.displayName}: ${why}".toString())
 }
 
-/** A command this driver turns down itself: warn, and show why on the device page. */
-private void refuse(String why) {
-    log.warn "${device.displayName}: ${why}"
-    goveeRefused(why)
-}
-
+/** Every command starts by clearing the last refusal. */
 private void clearRefused() {
     if (device.currentValue("lastError") != null) device.deleteCurrentState("lastError")
 }

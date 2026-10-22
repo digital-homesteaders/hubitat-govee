@@ -641,6 +641,20 @@ check("light: an unknown scene is refused on the device page") {
     lamp().on()
     hub.settle()
     assert lamp().currentValue("lastError") == null
+    // An empty name would otherwise match the first scene.
+    int posts = app.callsNamed("asynchttpPost").size()
+    lamp().setScene("")
+    hub.settle()
+    assert lamp().currentValue("lastError").startsWith("Set Scene needs a scene name")
+    assert app.callsNamed("asynchttpPost").size() == posts
+    // Commands that don't send anything still clear it.
+    lamp().refresh()
+    assert lamp().currentValue("lastError") == null
+    // A name given to Set Effect is looked up as a scene.
+    lamp().setEffect("No Such Scene Anywhere")
+    assert lamp().currentValue("lastError") == "no scene called 'No Such Scene Anywhere' (see lightEffects)"
+    lamp().stopLevelChange()
+    assert lamp().currentValue("lastError") == null
 }
 
 check("fan: a mode it lacks is refused on the device page, and the next command clears it") {

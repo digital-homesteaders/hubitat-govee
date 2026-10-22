@@ -222,7 +222,9 @@ check("plan: fan speed without the API's capabilities is an error, power still w
     assert plan("fan", [:], "setSpeed", ["high"]).error && !plan("fan", [:], "setSpeed", ["high"]).send
     assert plan("fan", [onOff: 1], "setLevel", [50]).error
     assert plan("fan", [:], "setSpeed", ["bogus"], capsFor("H7111")).error
-    assert plan("fan", [:], "setMode", ["Auto"]).error
+    // Without the API key there's no mode list: say so, rather than "this fan has no mode".
+    assert plan("fan", [:], "setMode", ["Auto"]).error.startsWith("fan modes need the Govee API key")
+    assert app.goveeCommand(dev("fan", [:]), [:], "setMode", ["Sleep"]).refused.startsWith("fan modes need")
     assert plan("fan", [:], "on").send[0].cmd == "turn"
 }
 

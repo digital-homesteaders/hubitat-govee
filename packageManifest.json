@@ -6,7 +6,7 @@
   "dateReleased": "2026-10-22",
   "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Clearer fix-it text when driver code is out of date or in the wrong entry (covers Hubitat Package Manager as well as pasting); the Set Mode tooltip explains Custom; the tester guide offers Package Manager.",
+  "releaseNotes": "Since 0.4.4: fans show Govee's Storm mode as Turbo, as the Govee Home app does; rules that check for mode Storm need Turbo (Set Mode still accepts Storm). A refused command (a mode or scene the device doesn't have, an empty scene name, Flash on an API-only light, fan modes without the API key) shows why in lastError on the device page until the next command. Set Effect takes a scene name too. Clearer fix-it text when driver code is out of date or in the wrong entry (Package Manager or pasted). The Set Mode tooltip explains Custom.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

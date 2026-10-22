@@ -1091,10 +1091,10 @@ private Map planFanStep(Map caps, Map s, int step) {
 String modeLabel(def name) { (MODE_LABELS[name?.toString()] ?: name?.toString()) as String }
 
 private Map planFanMode(Map caps, Map s, String name) {
+    if (!caps.modes) return [send: [], optimistic: [:], error: "fan modes need the Govee API key (if it's set, press Look for new devices in the app)"]
     def m = (caps.modes ?: []).find { it[0].toString().equalsIgnoreCase(name) || modeLabel(it[0]).equalsIgnoreCase(name) }
     // The Set Mode dropdown is the same for every fan, so say which modes this one has.
-    if (!m) return [send: [], optimistic: [:], error: "this fan has no mode '${name}'" +
-        ((caps.modes ?: []) ? "; it has ${(caps.modes as List).collect { modeLabel(it[0]) }.join(', ')}" : "")]
+    if (!m) return [send: [], optimistic: [:], error: "this fan has no mode '${name}'; it has ${(caps.modes as List).collect { modeLabel(it[0]) }.join(', ')}"]
     // The speed mode needs a step: go back to the last one used.
     if (m[1] == caps.speedMode) {
         List speeds = caps.speeds ?: []
@@ -1122,15 +1122,13 @@ String commandRoute(def cd) {
     return r.ip ? "lan" : (r.live ? "iot" : "api")
 }
 
-/** Called by a light or fan driver. Sends the command and returns the optimistic state. */
+/**
+ * Called by a light or fan driver. Sends the command and returns the optimistic
+ * state, or [refused: why] for a command it can't send (the driver logs and shows it).
+ */
 Map goveeCommand(def cd, Map s, String cmd, List args) {
     Map plan = planCommand(cd, s ?: [:], cmd, args ?: [])
-    if (plan.error) {
-        log.warn "Govee: ${cd.displayName}: ${plan.error}"
-        // Shown on the device page too; drivers before 0.4.5 don't have it.
-        try { cd.goveeRefused(plan.error) } catch (e) { }
-        return [:]
-    }
+    if (plan.error) return [refused: plan.error]
     String id = cd.getDataValue("id")
     String sku = cd.getDataValue("sku")
     Map r = routeFor(id)

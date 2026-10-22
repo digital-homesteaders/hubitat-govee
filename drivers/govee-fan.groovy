@@ -64,6 +64,7 @@ def updated() {
 }
 
 def refresh() {
+    clearRefused()
     parent?.refreshFromDriver(device)
 }
 
@@ -80,16 +81,19 @@ def setOscillation(value) { sendGovee("setOscillation", [value]) }
 private void sendGovee(String cmd, List args = []) {
     clearRefused()
     Map optimistic = parent?.goveeCommand(device, state.gov ?: [:], cmd, args)
-    if (optimistic) merge(optimistic)
+    if (optimistic?.refused) refuse(optimistic.refused as String)
+    else if (optimistic) merge(optimistic)
 }
 
 // ---------------------------------------------------------------- state from the app
 
-/** Called by the app when it refuses a command (a mode or scene this device doesn't have). */
-void goveeRefused(String why) {
+/** A command turned down (by the app or this driver): warn, and show why on the device page. */
+private void refuse(String why) {
+    log.warn "${device.displayName}: ${why}"
     sendEvent(name: "lastError", value: why, descriptionText: "${device.displayName}: ${why}".toString())
 }
 
+/** Every command starts by clearing the last refusal. */
 private void clearRefused() {
     if (device.currentValue("lastError") != null) device.deleteCurrentState("lastError")
 }
