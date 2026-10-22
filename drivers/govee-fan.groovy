@@ -9,7 +9,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.4.5"
+@Field static final String DRIVER_VERSION = "0.4.6"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Fan"
 
@@ -41,7 +41,7 @@ metadata {
         attribute "lastError", "string"
 
         command "setSpeedLevel", [[name: "Speed (1 to 8)*", type: "ENUM", description: "The speed number as in the Govee app; a fan with fewer speeds uses its top one", constraints: SPEED_LEVELS]]
-        command "setMode", [[name: "Mode*", type: "ENUM", description: "Fixed speed uses the last speed number; the others are the Govee app's modes. Not every fan has every mode: supportedModes lists this fan's", constraints: FAN_MODES]]
+        command "setMode", [[name: "Mode*", type: "ENUM", description: "Fixed speed uses the last speed number; Custom runs the program set in the Govee app; the others are the Govee app's modes. Not every fan has every mode: supportedModes lists this fan's", constraints: FAN_MODES]]
         command "setOscillation", [[name: "Oscillation (swing side to side)*", type: "ENUM", constraints: ["on", "off"]]]
     }
     preferences {
@@ -141,15 +141,15 @@ private void logDebug(String msg) {
 /** Called by the app on Done: record this driver's version and compare it with the app's. */
 void goveeHello() { checkVersion() }
 
-/** Warn when this driver and the app come from different versions (a file wasn't re-pasted). */
+/** Warn when this driver and the app come from different versions (a file wasn't updated). */
 private void checkVersion() {
     if (device.getDataValue("driverVersion") != DRIVER_VERSION) device.updateDataValue("driverVersion", DRIVER_VERSION)
     // The device page's Data shows which driver code and version this device runs.
     if (device.getDataValue("driverName") != DRIVER_NAME) device.updateDataValue("driverName", DRIVER_NAME)
     // Code pasted into the wrong Drivers Code entry: say so rather than act oddly.
     String kind = device.getDataValue("kind")
-    if (kind && kind != "fan") log.warn "Govee: ${device.displayName} is a ${kind} but runs the ${DRIVER_NAME} driver code: re-paste each driver into its own Drivers Code entry (or set this device's Type to Govee Light)"
+    if (kind && kind != "fan") log.warn "Govee: ${device.displayName} is a ${kind} but runs the ${DRIVER_NAME} driver code: set this device's Type to Govee Light, or paste the right code into this Drivers Code entry"
     String appVersion = null
     try { appVersion = parent?.goveeVersion() } catch (e) { }
-    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: re-paste the app and all drivers from the same version"
+    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: update them together (Hubitat Package Manager's Update, or paste the app and all drivers from the same version)"
 }

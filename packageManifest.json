@@ -1,12 +1,12 @@
 {
   "packageName": "Govee Connect",
   "author": "Digital Homesteaders",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "minimumHEVersion": "2.3.0",
-  "dateReleased": "2026-10-21",
+  "dateReleased": "2026-10-22",
   "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Fans: Govee's Storm mode is shown as Turbo, matching the Govee Home app (setMode accepts either name). A refused command (a mode or scene the device doesn't have, Flash on an API-only light) shows why in a lastError state on the device page, cleared by the next command.",
+  "releaseNotes": "Clearer fix-it text when driver code is out of date or in the wrong entry (covers Hubitat Package Manager as well as pasting); the Set Mode tooltip explains Custom; the tester guide offers Package Manager.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

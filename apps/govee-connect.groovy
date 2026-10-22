@@ -48,7 +48,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.4.5"
+@Field static final String VERSION = "0.4.6"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -136,6 +136,9 @@ preferences {
 
 // Colour temperature range when the Platform API doesn't give one.
 @Field static final List CT_RANGE = [2000, 9000]
+// What to do about mismatched driver code, for HPM and hand-pasted installs alike.
+@Field static final String VERSION_FIX = "Installed with Hubitat Package Manager: run its Update. Pasted by hand: paste the app and all three drivers from the same version. Also check each device's Type is the Govee driver it needs, not an old copy."
+@Field static final String WRONG_FIX = "Set each device's Type to the driver it needs (Devices > the device > Type), and if a Drivers Code entry holds the other driver's code, paste the right code into it (or run Update in Hubitat Package Manager)."
 // Govee fan mode names shown differently in Hubitat (either name is accepted). The
 // Platform API calls workMode 7 "Storm"; the Govee Home app shows it as Turbo.
 @Field static final Map MODE_LABELS = [FanSpeed: "Fixed speed", Storm: "Turbo"]
@@ -215,13 +218,13 @@ def mainPage() {
     }
 }
 
-/** Drivers whose version differs from the app's (a file wasn't re-pasted). */
+/** Drivers whose version differs from the app's (a file wasn't updated), or the wrong driver code. */
 private String driverVersionNote() {
     List odd = getChildDevices().findAll { it.getDataValue("driverVersion") && it.getDataValue("driverVersion") != VERSION }
         .collect { "${it.displayName} (${it.getDataValue('driverVersion')})" } + (state.oldDrivers ?: []).collect { "${it} (older)" }
     List wrong = wrongDrivers().collect { "${it.device} runs ${it.runs} but needs ${it.needs}" }
-    String note = odd ? ". <b>Drivers from another version:</b> ${odd.join(', ')}. Re-paste them and press Done." : ""
-    if (wrong) note += ". <b>Wrong driver code:</b> ${wrong.join('; ')}. Re-paste each driver into its own Drivers Code entry, then press Done."
+    String note = odd ? ". <b>Drivers from another version:</b> ${odd.join(', ')}. ${VERSION_FIX} Then press Done." : ""
+    if (wrong) note += ". <b>Wrong driver code:</b> ${wrong.join('; ')}. ${WRONG_FIX} Then press Done."
     return note
 }
 
@@ -320,7 +323,7 @@ void initialize() {
         try { cd.goveeHello() } catch (e) { old << cd.displayName }
     }
     state.oldDrivers = old
-    wrongDrivers().each { log.warn "Govee: ${it.device} runs the ${it.runs} driver code but needs ${it.needs}: re-paste each driver into its own Drivers Code entry" }
+    wrongDrivers().each { log.warn "Govee: ${it.device} runs the ${it.runs} driver code but needs ${it.needs}: ${WRONG_FIX}" }
     if (logEnable) runIn(1800, "logsOff")
     if (!getGoveeDevices()) {
         getConnection()?.disconnectMqtt()

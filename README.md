@@ -195,6 +195,8 @@ Not yet tried on the hub:
       Fixed speed, Custom, Auto, Sleep, Nature" under Current States (its API offers no Turbo,
       child lock or indicator light), and the next command clears it
 - [ ] 0.4.5 lights: Set Scene with a made-up name, and Flash on the H6052, show lastError
+- [ ] 0.4.6 the app page's driver warnings name both fixes (Package Manager's Update, or pasting)
+      and suggest checking each device's Type
 - [ ] The Import button on each Apps Code / Drivers Code page fetches the file from GitHub
 - [ ] 0.4.3 single-threaded light and fan drivers: commands, live reports and button
       dimming still respond promptly, and nothing stalls (Hubitat queues each device's work)

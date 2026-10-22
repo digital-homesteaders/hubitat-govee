@@ -12,7 +12,7 @@
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
 
-@Field static final String DRIVER_VERSION = "0.4.5"
+@Field static final String DRIVER_VERSION = "0.4.6"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Light"
 
@@ -366,15 +366,15 @@ private void dropOldAttributes() {
     OLD_ATTRIBUTES.each { if (device.currentValue(it) != null) device.deleteCurrentState(it) }
 }
 
-/** Warn when this driver and the app come from different versions (a file wasn't re-pasted). */
+/** Warn when this driver and the app come from different versions (a file wasn't updated). */
 private void checkVersion() {
     if (device.getDataValue("driverVersion") != DRIVER_VERSION) device.updateDataValue("driverVersion", DRIVER_VERSION)
     // The device page's Data shows which driver code and version this device runs.
     if (device.getDataValue("driverName") != DRIVER_NAME) device.updateDataValue("driverName", DRIVER_NAME)
     // Code pasted into the wrong Drivers Code entry: say so rather than act oddly.
     String kind = device.getDataValue("kind")
-    if (kind && kind != "light") log.warn "Govee: ${device.displayName} is a ${kind} but runs the ${DRIVER_NAME} driver code: re-paste each driver into its own Drivers Code entry (or set this device's Type to Govee Fan)"
+    if (kind && kind != "light") log.warn "Govee: ${device.displayName} is a ${kind} but runs the ${DRIVER_NAME} driver code: set this device's Type to Govee Fan, or paste the right code into this Drivers Code entry"
     String appVersion = null
     try { appVersion = parent?.goveeVersion() } catch (e) { }
-    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: re-paste the app and all drivers from the same version"
+    if (appVersion != DRIVER_VERSION) log.warn "Govee: ${device.displayName} driver is ${DRIVER_VERSION} but the app is ${appVersion ?: 'older'}: update them together (Hubitat Package Manager's Update, or paste the app and all drivers from the same version)"
 }
