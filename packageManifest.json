@@ -6,7 +6,7 @@
   "dateReleased": "2026-10-22",
   "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Since 0.4.6: a rejected Govee API key no longer floods the log. The app warns once, pauses API reads (polls, refreshes, scene lists) for an hour, skips API commands with a warning, and shows the problem under the API key on the app page. It tries again straight away when the key changes or you press Done, and clears as soon as a request works. No reported values change.",
+  "releaseNotes": "Since 0.4.6: the API key is trimmed, so a space or line break copied from Govee's email no longer gets it rejected. A rejected key no longer floods the log: the app warns once, pauses API reads (polls, refreshes, scene lists) for an hour, skips API commands with a warning, and shows the problem under the API key on the app page. It tries again straight away when the key changes or you press Done, and clears as soon as a request works. No reported values change.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

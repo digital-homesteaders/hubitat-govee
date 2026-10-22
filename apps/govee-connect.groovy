@@ -1510,7 +1510,7 @@ void apiStateResp(resp, Map data) {
 }
 
 private void apiRequest(String method, String path, Map body, String callback, Map cbData = [:]) {
-    Map params = [uri: OPENAPI + path, headers: ["Govee-API-Key": settings.apiKey, "Accept": "application/json"],
+    Map params = [uri: OPENAPI + path, headers: ["Govee-API-Key": apiKey(), "Accept": "application/json"],
                   timeout: TIMEOUT, contentType: "application/json", textParser: true]
     if (body != null) {
         params.requestContentType = "application/json"
@@ -1537,7 +1537,7 @@ private Map apiJson(resp) {
 private void noteKeyRejected() {
     // Requests sent before the first 401 are still answering.
     if (apiKeyPauseLeft() > 0) return
-    API_KEY_BAD[app.id as Long] = [key: (settings.apiKey as String)?.hashCode(), until: now() + API_KEY_RETRY_MS]
+    API_KEY_BAD[app.id as Long] = [key: apiKey()?.hashCode(), until: now() + API_KEY_RETRY_MS]
     log.warn "Govee: the API key was rejected; the API waits an hour (or until the key changes or you press Done). " +
         "Check the key in Govee Connect, or request a new one in the Govee Home app"
 }
@@ -1545,8 +1545,11 @@ private void noteKeyRejected() {
 /** Whether Govee rejected the API key now set (and no request has worked since). */
 boolean apiKeyRejected() {
     Map b = API_KEY_BAD[app.id as Long]
-    return b != null && b.key == (settings.apiKey as String)?.hashCode()
+    return b != null && b.key == apiKey()?.hashCode()
 }
+
+/** The API key as Govee issued it: a copy from its email can bring spaces or a line break. */
+private String apiKey() { (settings.apiKey as String)?.trim() }
 
 private long apiKeyPauseLeft() {
     return apiKeyRejected() ? Math.max(0L, (API_KEY_BAD[app.id as Long].until as long) - now()) : 0L

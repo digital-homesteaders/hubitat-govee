@@ -798,6 +798,17 @@ check("an HTTP 429 holds back polls, refreshes and scene lists, longer each time
     assert app.callsNamed("asynchttpPost").size() > posts
 }
 
+check("the API key is sent without spaces or line breaks copied around it") {
+    String key = app.settings.apiKey
+    app.settings.apiKey = "  key-from-email\n"
+    try {
+        app.refreshDevice([id: FAN])
+        assert lastHttp()[2].headers["Govee-API-Key"] == "key-from-email"
+    } finally {
+        app.settings.apiKey = key
+    }
+}
+
 check("a rejected API key warns once, holds the API back an hour, and a new key or a success ends it") {
     String key = app.settings.apiKey
     app.settings.apiKey = "bad-key"
