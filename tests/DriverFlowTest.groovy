@@ -710,7 +710,7 @@ check("with the live connection down, commands go straight to the API") {
     assert bodyOf(app.callsNamed("asynchttpPost").drop(posts)[0]).payload.capability == [type: "devices.capabilities.on_off", instance: "powerSwitch", value: 0]
 }
 
-check("reconnect backs off and the watchdog reconnects") {
+check("reconnect backs off; the watchdog leaves the backoff alone, and the timer reconnects") {
     conn().driver.mqtt.refuse = true
     conn().connectMqtt()
     conn().afterConnect()
@@ -719,10 +719,64 @@ check("reconnect backs off and the watchdog reconnects") {
     List waits = conn().driver.callsNamed("runIn").findAll { it[2] == "connectMqtt" }.collect { it[1] }
     assert waits[-1] > waits[-2]
     conn().driver.mqtt.refuse = false
+    int connects = conn().driver.callsNamed("mqtt.connect").size()
     conn().watchdog()
+    assert conn().driver.callsNamed("mqtt.connect").size() == connects, "no connect while backing off"
+    conn().connectMqtt()                            // the backoff timer firing
     conn().afterConnect()
     hub.settle()
     assert conn().currentValue("connection") == "connected" && conn().driver.state.failures == 0
+}
+
+// ---- client hygiene (the hub's memory-leak hunt, 2026-10-23): never leave an old client holding resources
+
+/** Calls made by the connection driver since `from`, by name. */
+List connCalls(int from) { conn().driver.calls.drop(from).collect { it[0] } }
+
+check("connect always releases the old client first, even one that says it isn't connected, and after new code") {
+    conn().driver.getClass().MEM.clear()            // new code or a restart: phase unknown
+    conn().driver.mqtt.connected = false            // a half-dead client reports not connected
+    int from = conn().driver.calls.size()
+    conn().connectMqtt()
+    List c = connCalls(from)
+    assert c.indexOf("mqtt.disconnect") >= 0 && c.indexOf("mqtt.disconnect") < c.indexOf("mqtt.connect")
+}
+
+check("an error notice while connecting is ignored; afterConnect decides") {
+    int failures = (conn().driver.state.failures ?: 0) as int
+    conn().mqttClientStatus("Error: Connection lost: old client")
+    hub.settle()
+    assert conn().currentValue("connection") == "connecting" && ((conn().driver.state.failures ?: 0) as int) == failures
+    int from = conn().driver.calls.size()
+    conn().connectMqtt()                            // a second connect on top: skipped
+    assert !connCalls(from).contains("mqtt.connect")
+    conn().afterConnect()
+    hub.settle()
+    assert conn().currentValue("connection") == "connected"
+}
+
+check("several notices for one drop count as one failure") {
+    conn().driver.mqtt.connected = false
+    conn().mqttClientStatus("Error: Connection lost: connection reset")
+    conn().mqttClientStatus("Error: Connection lost: connection reset")
+    conn().mqttClientStatus("Connection lost")
+    hub.settle()
+    assert conn().driver.state.failures == 1
+    conn().driver.mqtt.connected = true
+    conn().connectMqtt()
+    conn().afterConnect()
+    hub.settle()
+}
+
+check("a silent drop (no notice) is the watchdog's: it reconnects") {
+    assert conn().currentValue("connection") == "connected"
+    conn().driver.mqtt.connected = false            // died without a status callback
+    int connects = conn().driver.callsNamed("mqtt.connect").size()
+    conn().watchdog()
+    assert conn().driver.callsNamed("mqtt.connect").size() == connects + 1
+    conn().afterConnect()
+    hub.settle()
+    assert conn().currentValue("connection") == "connected"
 }
 
 check("a light's mode number: learned after a colour command, then shows scenes started elsewhere") {
