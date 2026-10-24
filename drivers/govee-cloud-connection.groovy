@@ -150,7 +150,9 @@ def connectMqtt() {
     Map creds = parent?.iotCredentials()
     if (!creds) {
         logDebug "No certificate yet; waiting for the app to sign in"
-        setConnection("disconnected")
+        // Mid re-sign-in, the certificate comes back: keep trying.
+        if (state.wanted) scheduleReconnect()
+        else setConnection("disconnected")
         return
     }
     Map pem
@@ -158,7 +160,8 @@ def connectMqtt() {
         pem = pemFor(creds)
     } catch (e) {
         log.error "Govee: couldn't read the device certificate: ${e.message}"
-        setConnection("disconnected")
+        if (state.wanted) scheduleReconnect()
+        else setConnection("disconnected")
         return
     }
     Map m = mem()
@@ -213,6 +216,8 @@ def afterConnect() {
         return
     }
     mem().phase = "up"
+    // A backoff timer from earlier failures would tear this connection down.
+    unschedule("connectMqtt")
     interfaces.mqtt.subscribe(state.accountTopic as String, 1)
     state.failures = 0
     setConnection("connected")
@@ -236,12 +241,16 @@ def periodicQuery() {
 
 /**
  * Hubitat's MQTT client doesn't reconnect by itself, and a connection can die
- * without a notice. Only that silent drop is the watchdog's: while connecting it
- * waits for afterConnect, and while down the backoff timer is in charge.
+ * without a notice. That silent drop is the watchdog's. While connecting it waits
+ * for afterConnect, and while down the backoff timer is in charge, unless either
+ * is overdue (the hub's scheduler can drop a timer).
  */
 def watchdog() {
     if (!state.wanted) return
-    if (!isUp() && !(mem().phase in ["connecting", "down"])) {
+    Map m = mem()
+    boolean stuck = (m.phase == "connecting" && now() - ((m.connectAt ?: 0L) as long) > (CONNECT_WAIT_S + 60) * 1000L) ||
+        (m.phase == "down" && now() > ((m.retryAt ?: 0L) as long) + 60000L)
+    if (!isUp() && (stuck || !(m.phase in ["connecting", "down"]))) {
         log.info "Govee: live connection lost; reconnecting"
         connectMqtt()
     }
@@ -256,6 +265,7 @@ private void scheduleReconnect() {
     state.failures = failures
     int wait = Math.min(RECONNECT_MAX_S, 5 * (1 << Math.min(failures - 1, 6)))
     logDebug "Reconnecting in ${wait} s"
+    mem().retryAt = now() + wait * 1000L
     runIn(wait, "connectMqtt")
 }
 

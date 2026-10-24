@@ -586,7 +586,7 @@ private void accountDevices(resp) {
     log.info "Govee: the account lists ${found.size()} device(s)"
     state.accountDevices = found
     state.discoveredAt = now()
-    if (settings.apiKey) {
+    if (apiKey()) {
         apiRequest("GET", "/user/devices", null, "apiDevicesResp")
     } else {
         finishDiscovery([:])
@@ -595,14 +595,14 @@ private void accountDevices(resp) {
 
 void apiDevicesResp(resp, Map data) {
     try {
-        apiDevices(resp)
+        apiDevices(resp, data)
     } catch (e) {
         discoveryFailed("reading the API device list failed: ${e}")
     }
 }
 
-private void apiDevices(resp) {
-    Map json = apiJson(resp)
+private void apiDevices(resp, Map data) {
+    Map json = apiJson(resp, data)
     Map caps = [:]
     if (json?.data instanceof List) {
         json.data.each { Map d -> if (d.device) caps[d.device] = d }
@@ -655,7 +655,7 @@ private void finishDiscovery(Map apiDevices) {
  * The lists live on the light devices, not in the app's state.
  */
 void loadScenes(boolean force = false) {
-    if (!settings.apiKey || apiPaused()) return
+    if (!apiKey() || apiPaused()) return
     Map at = state.scenesAt ?: [:]
     getGoveeDevices().findAll { it.getDataValue("kind") == "light" }.each { cd ->
         String id = cd.getDataValue("id")
@@ -673,7 +673,7 @@ void loadScenes(boolean force = false) {
 }
 
 void scenesResp(resp, Map data) {
-    Map json = apiJson(resp)
+    Map json = apiJson(resp, data)
     def cd = deviceById(data?.id as String)
     if (!cd) return
     List caps = json?.payload?.capabilities
@@ -764,7 +764,7 @@ void iotMessage(Map msg) {
     if (s.mode != null && cd.getDataValue("kind") == "light") s.putAll(sceneFromMode(id, s.mode, LAST_MODE.put(id, s.mode.toString())))
     cd.goveeUpdate(s, via)
     // Fans report only power over MQTT: read speed and mode once power changes.
-    if (cd.getDataValue("kind") == "fan" && s.containsKey("onOff") && settings.apiKey) runIn(2, "refreshDevice", [data: [id: id], overwrite: false])
+    if (cd.getDataValue("kind") == "fan" && s.containsKey("onOff") && apiKey()) runIn(2, "refreshDevice", [data: [id: id], overwrite: false])
 }
 
 void noteIot(String id, long at) { if (id) LAST_IOT.put(id, at) }
@@ -1120,7 +1120,7 @@ private Map planFanMode(Map caps, Map s, String name) {
 private Map routeFor(String id) {
     def conn = getConnection()
     String topic = (state.discovered ?: [:])[id]?.topic
-    boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(settings.apiKey && apiOnly(id))
+    boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(apiKey() && apiOnly(id))
     String ip = conn && lanUsable(id) ? (state.lan ?: [:])[id]?.ip : null
     return [conn: conn, topic: topic, live: live, ip: ip]
 }
@@ -1160,7 +1160,7 @@ Map goveeCommand(def cd, Map s, String cmd, List args) {
             conn.publishCommand(id, topic, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
         } else if (item.api) {
             if (item.via == "iot") {
-                String why = settings.apiKey && apiOnly(id) ? "ignores live commands" : "no live connection"
+                String why = apiKey() && apiOnly(id) ? "ignores live commands" : "no live connection"
                 logDebug "${cd.displayName}: ${why}, sending ${item.cmd} over the API"
             }
             sendApi(id, sku, item.api as Map)
@@ -1199,7 +1199,7 @@ boolean apiOnly(String id) {
 void iotUnconfirmed(String id, List apis) {
     def cd = deviceById(id)
     if (!cd || !apis) return
-    if (!settings.apiKey) {
+    if (!apiKey()) {
         log.warn "Govee: ${cd.displayName} didn't carry out a command sent over the live connection, and there's no API key to retry it with"
         return
     }
@@ -1418,7 +1418,7 @@ void lanUnconfirmed(String id, List items) {
     }
     def conn = getConnection()
     String topic = (state.discovered ?: [:])[id]?.topic
-    boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(settings.apiKey && apiOnly(id))
+    boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(apiKey() && apiOnly(id))
     items.each { Map item ->
         if (live) conn.publishCommand(id, topic, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
         else if (item.api) sendApi(id, cd.getDataValue("sku"), item.api as Map)
@@ -1437,7 +1437,7 @@ void lanConfirmed(String id) {
 // ---------------------------------------------------------------- Platform API
 
 private void sendApi(String id, String sku, Map cap) {
-    if (!settings.apiKey) {
+    if (!apiKey()) {
         log.warn "Govee: ${cap.instance} needs the Govee API key (or the live connection)"
         return
     }
@@ -1450,7 +1450,7 @@ private void sendApi(String id, String sku, Map cap) {
 }
 
 void apiControlResp(resp, Map data) {
-    Map json = apiJson(resp)
+    Map json = apiJson(resp, data)
     def cd = deviceById(data?.id as String)
     if (statusOf(resp) != 200 || (json?.code && json.code != 200)) {
         log.warn "Govee: ${cd?.displayName ?: data?.id}: ${data?.instance} failed (HTTP ${statusOf(resp)}${json?.msg ? ', ' + json.msg : ''})"
@@ -1467,7 +1467,7 @@ void apiControlResp(resp, Map data) {
 
 /** Read the state of quiet devices: those with no MQTT message lately, and fans (MQTT gives only their power). */
 void pollQuiet() {
-    if (!settings.apiKey || apiPaused()) return
+    if (!apiKey() || apiPaused()) return
     loadScenes()
     long cutoff = now() - QUIET_MS
     getGoveeDevices().each { cd ->
@@ -1479,7 +1479,7 @@ void pollQuiet() {
 
 void refreshDevice(Map data) {
     def cd = deviceById(data?.id as String)
-    if (!cd || !settings.apiKey) return
+    if (!cd || !apiKey()) return
     if (apiPaused()) {
         logDebug "${cd.displayName}: not read, the API asked us to slow down"
         return
@@ -1498,7 +1498,7 @@ void refreshFromDriver(def cd) {
 }
 
 void apiStateResp(resp, Map data) {
-    Map json = apiJson(resp)
+    Map json = apiJson(resp, data)
     def cd = deviceById(data?.id as String)
     if (!cd) return
     List caps = json?.payload?.capabilities
@@ -1512,6 +1512,8 @@ void apiStateResp(resp, Map data) {
 private void apiRequest(String method, String path, Map body, String callback, Map cbData = [:]) {
     Map params = [uri: OPENAPI + path, headers: ["Govee-API-Key": apiKey(), "Accept": "application/json"],
                   timeout: TIMEOUT, contentType: "application/json", textParser: true]
+    // Which key it went with: a late answer for an old key says nothing about the new one.
+    cbData = cbData + [keyHash: apiKey()?.hashCode()]
     if (body != null) {
         params.requestContentType = "application/json"
         params.body = JsonOutput.toJson(body)
@@ -1521,15 +1523,16 @@ private void apiRequest(String method, String path, Map body, String callback, M
     else asynchttpGet(callback, params, cbData)
 }
 
-private Map apiJson(resp) {
+private Map apiJson(resp, Map data) {
     noteRateLimits(resp)
     Map json = parseJson(bodyOf(resp))
+    boolean keyNow = data?.keyHash == apiKey()?.hashCode()
     if (statusOf(resp) == 429) noteRateLimited()
     else if (statusOf(resp) == 200) {
         API_BACKOFF.remove(app.id as Long)
-        API_KEY_BAD.remove(app.id as Long)
+        if (keyNow) API_KEY_BAD.remove(app.id as Long)
     }
-    if (statusOf(resp) == 401 || json?.code == 401) noteKeyRejected()
+    if (keyNow && (statusOf(resp) == 401 || json?.code == 401)) noteKeyRejected()
     return json
 }
 
@@ -1542,10 +1545,10 @@ private void noteKeyRejected() {
         "Check the key in Govee Connect, or request a new one in the Govee Home app"
 }
 
-/** Whether Govee rejected the API key now set (and no request has worked since). */
+/** Whether Govee rejected the API key now set, within the last hour (and no request has worked since). */
 boolean apiKeyRejected() {
     Map b = API_KEY_BAD[app.id as Long]
-    return b != null && b.key == apiKey()?.hashCode()
+    return b != null && b.key == apiKey()?.hashCode() && now() < (b.until as long)
 }
 
 /** The API key as Govee issued it: a copy from its email can bring spaces or a line break. */

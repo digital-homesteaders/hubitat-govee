@@ -779,6 +779,57 @@ check("a silent drop (no notice) is the watchdog's: it reconnects") {
     assert conn().currentValue("connection") == "connected"
 }
 
+check("a connection that comes up cancels the backoff timer, so it can't tear it down later") {
+    int from = conn().driver.calls.size()
+    conn().driver.mqtt.connected = false
+    conn().mqttClientStatus("Error: Connection lost: connection reset")
+    conn().driver.mqtt.connected = true
+    conn().connectMqtt()                            // Reconnect pressed while the backoff waits
+    conn().afterConnect()
+    hub.settle()
+    assert conn().driver.calls.drop(from).any { it == ["unschedule", "connectMqtt"] }
+}
+
+check("with no certificate mid re-sign-in, the driver keeps retrying instead of stopping") {
+    Map iot = app.state.iot
+    app.state.remove("iot")
+    try {
+        conn().driver.mqtt.connected = false
+        conn().mqttClientStatus("Error: Connection lost: connection reset")
+        hub.settle()
+        int from = conn().driver.calls.size()
+        conn().connectMqtt()                        // the backoff timer firing
+        assert conn().driver.calls.drop(from).any { it[0] == "runIn" && it[2] == "connectMqtt" }, "another try scheduled"
+    } finally {
+        app.state.iot = iot
+    }
+    conn().driver.mqtt.connected = true
+    conn().connectMqtt()
+    conn().afterConnect()
+    hub.settle()
+    assert conn().currentValue("connection") == "connected"
+}
+
+check("the watchdog restarts a reconnect whose timer the hub dropped") {
+    conn().driver.mqtt.connected = false
+    conn().mqttClientStatus("Error: Connection lost: connection reset")
+    hub.settle()
+    int connects = conn().driver.callsNamed("mqtt.connect").size()
+    conn().watchdog()
+    assert conn().driver.callsNamed("mqtt.connect").size() == connects, "the backoff timer is still due"
+    hub.advance(10 * 60 * 1000L)                    // well past the longest wait: the timer was lost
+    conn().watchdog()
+    assert conn().driver.callsNamed("mqtt.connect").size() == connects + 1
+    conn().driver.mqtt.connected = false            // that attempt went nowhere,
+    hub.advance(2 * 60 * 1000L)                     // and its afterConnect was lost too
+    conn().watchdog()
+    assert conn().driver.callsNamed("mqtt.connect").size() == connects + 2, "a stalled connect is retried"
+    conn().driver.mqtt.connected = true
+    conn().afterConnect()
+    hub.settle()
+    assert conn().currentValue("connection") == "connected"
+}
+
 check("a light's mode number: learned after a colour command, then shows scenes started elsewhere") {
     lamp().setColorTemperature(2700)
     hub.settle()
@@ -866,28 +917,38 @@ check("the API key is sent without spaces or line breaks copied around it") {
 check("a rejected API key warns once, holds the API back an hour, and a new key or a success ends it") {
     String key = app.settings.apiKey
     app.settings.apiKey = "bad-key"
+    // Callback data as apiRequest sends it: tagged with the key the request went with.
+    Closure sent = { Map d -> d + [keyHash: app.settings.apiKey.trim().hashCode()] }
     try {
         int posts = app.callsNamed("asynchttpPost").size()
         int warns = app.log.lines.count { it[1].contains("API key was rejected") }
-        3.times { app.apiStateResp(resp(401, [code: 401, message: "Invalid API Key"]), [id: FAN]) }
+        3.times { app.apiStateResp(resp(401, [code: 401, message: "Invalid API Key"]), sent([id: FAN])) }
         assert app.log.lines.count { it[1].contains("API key was rejected") } == warns + 1, "one warning for a burst"
         assert app.apiKeyRejected() && app.apiPauseLeft() > 59 * 60 * 1000L
         app.pollQuiet()
         app.refreshDevice([id: FAN])
-        app.apiControlResp(resp(401, [code: 401]), [id: LAMP, instance: "powerSwitch"])
+        app.apiControlResp(resp(401, [code: 401]), sent([id: LAMP, instance: "powerSwitch"]))
         app.sendApi(LAMP, "H6117", [type: "devices.capabilities.on_off", instance: "powerSwitch", value: 1])
         assert app.callsNamed("asynchttpPost").size() == posts
         assert app.log.lines.any { it[1].contains("powerSwitch not sent") }
         hub.advance(61 * 60 * 1000L)
-        assert !app.apiPaused() && app.apiKeyRejected(), "tried again after an hour; still known bad until it answers"
-        app.apiStateResp(resp(401, [code: 401]), [id: FAN])
+        assert !app.apiPaused() && !app.apiKeyRejected(), "reads and commands try again after an hour"
+        app.sendApi(LAMP, "H6117", [type: "devices.capabilities.on_off", instance: "powerSwitch", value: 1])
+        assert app.callsNamed("asynchttpPost").size() == posts + 1, "a command goes after the hour"
+        app.apiStateResp(resp(401, [code: 401]), sent([id: FAN]))
         assert app.log.lines.count { it[1].contains("API key was rejected") } == warns + 2, "warned again an hour later"
+        Map oldKeyRequest = sent([id: FAN])
         app.settings.apiKey = "new-key"
         assert !app.apiKeyRejected() && !app.apiPaused(), "a new key goes straight away"
+        app.apiStateResp(resp(401, [code: 401]), oldKeyRequest)
+        assert !app.apiKeyRejected(), "a late answer for the old key doesn't blame the new one"
         app.settings.apiKey = "bad-key"
-        app.apiStateResp(resp(401, [code: 401]), [id: FAN])
-        app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), [id: FAN])
+        app.apiStateResp(resp(401, [code: 401]), sent([id: FAN]))
+        app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), sent([id: FAN]))
         assert !app.apiKeyRejected(), "a request that works clears it"
+        app.settings.apiKey = "   "
+        app.sendApi(LAMP, "H6117", [type: "devices.capabilities.on_off", instance: "powerSwitch", value: 1])
+        assert app.log.lines.any { it[1].contains("needs the Govee API key") }, "a key of only spaces is no key"
     } finally {
         app.settings.apiKey = key
         hub.settle()
