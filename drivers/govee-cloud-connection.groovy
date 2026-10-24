@@ -99,7 +99,8 @@ private Map mem() {
     Long id = device.idAsLong
     Map m = MEM.get(id)
     if (m == null) {
-        MEM.putIfAbsent(id, [pending: [:], intent: [:]])
+        // phase: null (unknown: new code or a restart), "connecting", "up", "down" or "off"
+        MEM.putIfAbsent(id, [pending: [:], intent: [:], phase: null])
         m = MEM.get(id)
     }
     return m
@@ -135,7 +136,9 @@ def disconnect() { disconnectMqtt() }
 def disconnectMqtt() {
     state.wanted = false
     ["periodicQuery", "watchdog", "connectMqtt", "afterConnect"].each { unschedule(it) }
-    try { if (interfaces.mqtt.isConnected()) interfaces.mqtt.disconnect() } catch (e) { }
+    mem().phase = "off"
+    // Even a client that says it isn't connected (still connecting, half dead) holds resources.
+    try { interfaces.mqtt.disconnect() } catch (e) { }
     mem().pending.clear()
     setConnection("disconnected")
 }
@@ -147,7 +150,9 @@ def connectMqtt() {
     Map creds = parent?.iotCredentials()
     if (!creds) {
         logDebug "No certificate yet; waiting for the app to sign in"
-        setConnection("disconnected")
+        // Mid re-sign-in, the certificate comes back: keep trying.
+        if (state.wanted) scheduleReconnect()
+        else setConnection("disconnected")
         return
     }
     Map pem
@@ -155,14 +160,26 @@ def connectMqtt() {
         pem = pemFor(creds)
     } catch (e) {
         log.error "Govee: couldn't read the device certificate: ${e.message}"
-        setConnection("disconnected")
+        if (state.wanted) scheduleReconnect()
+        else setConnection("disconnected")
         return
     }
+    Map m = mem()
+    // An attempt still in progress (afterConnect will judge it): don't start a second client.
+    if (m.phase == "connecting" && now() - ((m.connectAt ?: 0L) as long) < (CONNECT_WAIT_S + 5) * 1000L) {
+        logDebug "Already connecting"
+        return
+    }
+    m.phase = "connecting"
+    m.connectAt = now()
     state.wanted = true
     state.accountTopic = creds.accountTopic
     setConnection("connecting")
+    // Always release the old client first, whatever it reports: one that is still
+    // connecting or half dead holds resources too. Its error notice is ignored while
+    // connecting (see mqttClientStatus).
+    try { interfaces.mqtt.disconnect() } catch (e) { }
     try {
-        if (interfaces.mqtt.isConnected()) interfaces.mqtt.disconnect()
         interfaces.mqtt.connect("ssl://${creds.endpoint}:8883", creds.clientId as String, null, null,
             tlsVersion: "1.2", caCertificate: AMAZON_ROOT_CA1, clientCertificate: pem.cert, privateKey: pem.key, cleanSession: true)
     } catch (e) {
@@ -198,6 +215,9 @@ def afterConnect() {
         scheduleReconnect()
         return
     }
+    mem().phase = "up"
+    // A backoff timer from earlier failures would tear this connection down.
+    unschedule("connectMqtt")
     interfaces.mqtt.subscribe(state.accountTopic as String, 1)
     state.failures = 0
     setConnection("connected")
@@ -219,10 +239,18 @@ def periodicQuery() {
     runIn(minutes * 60, "periodicQuery")
 }
 
-/** Hubitat's MQTT client doesn't reconnect by itself. */
+/**
+ * Hubitat's MQTT client doesn't reconnect by itself, and a connection can die
+ * without a notice. That silent drop is the watchdog's. While connecting it waits
+ * for afterConnect, and while down the backoff timer is in charge, unless either
+ * is overdue (the hub's scheduler can drop a timer).
+ */
 def watchdog() {
     if (!state.wanted) return
-    if (!isUp() && device.currentValue("connection") != "connecting") {
+    Map m = mem()
+    boolean stuck = (m.phase == "connecting" && now() - ((m.connectAt ?: 0L) as long) > (CONNECT_WAIT_S + 60) * 1000L) ||
+        (m.phase == "down" && now() > ((m.retryAt ?: 0L) as long) + 60000L)
+    if (!isUp() && (stuck || !(m.phase in ["connecting", "down"]))) {
         log.info "Govee: live connection lost; reconnecting"
         connectMqtt()
     }
@@ -230,17 +258,25 @@ def watchdog() {
 }
 
 private void scheduleReconnect() {
+    mem().phase = "down"
+    unschedule("afterConnect")
     setConnection("disconnected")
     int failures = ((state.failures ?: 0) as int) + 1
     state.failures = failures
     int wait = Math.min(RECONNECT_MAX_S, 5 * (1 << Math.min(failures - 1, 6)))
     logDebug "Reconnecting in ${wait} s"
+    mem().retryAt = now() + wait * 1000L
     runIn(wait, "connectMqtt")
 }
 
 def mqttClientStatus(String s) {
     logDebug "MQTT status: ${s}"
     if (s?.startsWith("Error") || s?.toLowerCase()?.contains("lost")) {
+        String phase = mem().phase
+        // While connecting it is most likely the old client's notice; afterConnect decides.
+        if (phase == "connecting") return
+        // One drop often brings several notices: count it once.
+        if (phase in ["down", "off"]) return
         if (state.wanted) scheduleReconnect()
         else setConnection("disconnected")
     }
