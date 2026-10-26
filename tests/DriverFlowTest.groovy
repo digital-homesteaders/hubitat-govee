@@ -790,6 +790,28 @@ check("a connection that comes up cancels the backoff timer, so it can't tear it
     assert conn().driver.calls.drop(from).any { it == ["unschedule", "connectMqtt"] }
 }
 
+check("a late notice from the old client, after the new connection is up, is ignored") {
+    assert conn().currentValue("connection") == "connected"
+    int failures = (conn().driver.state.failures ?: 0) as int
+    conn().mqttClientStatus("Error: Connection lost: old client")
+    hub.settle()
+    assert conn().currentValue("connection") == "connected" && ((conn().driver.state.failures ?: 0) as int) == failures
+}
+
+check("the watchdog is scheduled from the first attempt, so a dropped timer is caught before any connection came up") {
+    conn().driver.getClass().MEM.clear()
+    conn().driver.mqtt.refuse = true
+    int from = conn().driver.calls.size()
+    conn().connectMqtt()
+    conn().afterConnect()
+    assert conn().driver.calls.drop(from).any { it[0] == "runIn" && it[2] == "watchdog" }
+    conn().driver.mqtt.refuse = false
+    conn().connectMqtt()
+    conn().afterConnect()
+    hub.settle()
+    assert conn().currentValue("connection") == "connected"
+}
+
 check("with no certificate mid re-sign-in, the driver keeps retrying instead of stopping") {
     Map iot = app.state.iot
     app.state.remove("iot")
@@ -946,6 +968,10 @@ check("a rejected API key warns once, holds the API back an hour, and a new key 
         app.apiStateResp(resp(401, [code: 401]), sent([id: FAN]))
         app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), sent([id: FAN]))
         assert !app.apiKeyRejected(), "a request that works clears it"
+        warns = app.log.lines.count { it[1].contains("API key was rejected") }
+        3.times { app.apiStateResp(resp(200, [code: 401, message: "Invalid API Key"]), sent([id: FAN])) }
+        assert app.apiKeyRejected(), "a rejection carried in an HTTP 200 body still pauses the API"
+        assert app.log.lines.count { it[1].contains("API key was rejected") } == warns + 1, "and warns once, not per answer"
         app.settings.apiKey = "   "
         app.sendApi(LAMP, "H6117", [type: "devices.capabilities.on_off", instance: "powerSwitch", value: 1])
         assert app.log.lines.any { it[1].contains("needs the Govee API key") }, "a key of only spaces is no key"
