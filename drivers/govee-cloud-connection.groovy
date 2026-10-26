@@ -147,6 +147,13 @@ def disconnectMqtt() {
 
 def connectMqtt() {
     checkVersion()
+    Map m = mem()
+    // An attempt still in progress (afterConnect will judge it): don't start a second client,
+    // and don't let a missing certificate below tear that attempt down.
+    if (m.phase == "connecting" && now() - ((m.connectAt ?: 0L) as long) < (CONNECT_WAIT_S + 5) * 1000L) {
+        logDebug "Already connecting"
+        return
+    }
     Map creds = parent?.iotCredentials()
     if (!creds) {
         logDebug "No certificate yet; waiting for the app to sign in"
@@ -164,15 +171,11 @@ def connectMqtt() {
         else setConnection("disconnected")
         return
     }
-    Map m = mem()
-    // An attempt still in progress (afterConnect will judge it): don't start a second client.
-    if (m.phase == "connecting" && now() - ((m.connectAt ?: 0L) as long) < (CONNECT_WAIT_S + 5) * 1000L) {
-        logDebug "Already connecting"
-        return
-    }
     m.phase = "connecting"
     m.connectAt = now()
     state.wanted = true
+    // The watchdog covers a lost afterConnect or retry timer, so it runs from the first attempt, not only once a connection is up.
+    runIn(60, "watchdog")
     state.accountTopic = creds.accountTopic
     setConnection("connecting")
     // Always release the old client first, whatever it reports: one that is still
@@ -266,6 +269,7 @@ private void scheduleReconnect() {
     int wait = Math.min(RECONNECT_MAX_S, 5 * (1 << Math.min(failures - 1, 6)))
     logDebug "Reconnecting in ${wait} s"
     mem().retryAt = now() + wait * 1000L
+    runIn(60, "watchdog")
     runIn(wait, "connectMqtt")
 }
 
@@ -277,6 +281,8 @@ def mqttClientStatus(String s) {
         if (phase == "connecting") return
         // One drop often brings several notices: count it once.
         if (phase in ["down", "off"]) return
+        // A late notice from the client released at the last connect: the one up now is fine.
+        if (isUp()) return
         if (state.wanted) scheduleReconnect()
         else setConnection("disconnected")
     }

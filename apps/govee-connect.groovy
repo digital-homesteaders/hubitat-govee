@@ -1416,11 +1416,9 @@ void lanUnconfirmed(String id, List items) {
     } else {
         log.info "Govee: ${cd.displayName} didn't confirm ${items*.cmd.join(', ')} on the LAN; sending it through the cloud"
     }
-    def conn = getConnection()
-    String topic = (state.discovered ?: [:])[id]?.topic
-    boolean live = conn && topic && conn.currentValue("connection") == "connected" && !(apiKey() && apiOnly(id))
+    Map r = routeFor(id)
     items.each { Map item ->
-        if (live) conn.publishCommand(id, topic, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
+        if (r.live) r.conn.publishCommand(id, r.topic as String, item.cmd as String, item.data as Map, item.api as Map, expectFor(item.cmd as String, item.data as Map))
         else if (item.api) sendApi(id, cd.getDataValue("sku"), item.api as Map)
     }
 }
@@ -1528,11 +1526,13 @@ private Map apiJson(resp, Map data) {
     Map json = parseJson(bodyOf(resp))
     boolean keyNow = data?.keyHash == apiKey()?.hashCode()
     if (statusOf(resp) == 429) noteRateLimited()
-    else if (statusOf(resp) == 200) {
+    boolean rejected = statusOf(resp) == 401 || json?.code == 401
+    if (statusOf(resp) == 200 && !rejected) {
+        // A rejection can arrive as HTTP 200 with code 401 in the body: that mustn't clear the pause and warn again.
         API_BACKOFF.remove(app.id as Long)
         if (keyNow) API_KEY_BAD.remove(app.id as Long)
     }
-    if (keyNow && (statusOf(resp) == 401 || json?.code == 401)) noteKeyRejected()
+    if (keyNow && rejected) noteKeyRejected()
     return json
 }
 
@@ -1546,16 +1546,15 @@ private void noteKeyRejected() {
 }
 
 /** Whether Govee rejected the API key now set, within the last hour (and no request has worked since). */
-boolean apiKeyRejected() {
-    Map b = API_KEY_BAD[app.id as Long]
-    return b != null && b.key == apiKey()?.hashCode() && now() < (b.until as long)
-}
+boolean apiKeyRejected() { apiKeyPauseLeft() > 0 }
 
 /** The API key as Govee issued it: a copy from its email can bring spaces or a line break. */
 private String apiKey() { (settings.apiKey as String)?.trim() }
 
+/** How long the rejected-key pause has left, in ms. One read of the entry: a callback may remove it meanwhile. */
 private long apiKeyPauseLeft() {
-    return apiKeyRejected() ? Math.max(0L, (API_KEY_BAD[app.id as Long].until as long) - now()) : 0L
+    Map b = API_KEY_BAD[app.id as Long]
+    return b != null && b.key == apiKey()?.hashCode() ? Math.max(0L, (b.until as long) - now()) : 0L
 }
 
 /** An HTTP 429: hold the API's reads back, longer each time it repeats. */

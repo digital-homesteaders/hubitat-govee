@@ -193,6 +193,10 @@ Not yet tried on the hub:
 - [ ] A bad key (0.4.7), an hour later: an API command (fan speed) is sent again, not skipped
 - [ ] Live connection (0.4.7): after a network drop it comes back by itself, with no Reconnect
       press; pressing Reconnect while it is retrying leaves it connected (not dropped minutes later)
+- [ ] Live connection (unreleased, after 0.4.7): reboot the hub with the internet unplugged, plug
+      it back in; the connection comes back within a few minutes without a Reconnect press
+      (the watchdog now runs from the first attempt). Pressing Done while connected no longer
+      logs a drop a few seconds later.
 - [x] HPM: Install → From a URL with the manifest link installs the app and three drivers
       (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
 - [ ] HPM: a new release shows up under Update (0.4.5 is the first to try)
