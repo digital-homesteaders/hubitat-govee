@@ -710,22 +710,24 @@ check("health: a LAN light that stops answering scans goes offline; any word fro
     app.class.LAST_IOT.remove(LAMP)
     app.state.lan = [(LAMP): [ip: "192.168.1.50", at: old], other: [ip: "192.168.1.51", at: t]]
     app.class.LAN_WATCH_FROM[id] = t
-    app.checkLan()
+    app.checkHealth()
     assert lamp().currentValue("healthStatus") == "online", "not judged in the first minutes after a start"
     app.class.LAN_WATCH_FROM[id] = old
     app.state.lan.other.at = old
-    app.checkLan()
+    app.checkHealth()
     assert lamp().currentValue("healthStatus") == "online", "no device answers the scans: they say nothing"
     app.state.lan.other.at = t
-    app.checkLan()
+    app.checkHealth()
     hub.settle()
     assert lamp().currentValue("healthStatus") == "offline" && lamp().currentValue("transport") == transport
     assert app.log.lines.any { it[1].contains("stopped answering on the LAN") }
     app.apiStateResp(resp(200, [code: 200, payload: [capabilities: [[instance: "online", state: [value: true]]]]]), [id: LAMP])
     assert lamp().currentValue("healthStatus") == "offline", "the cloud's flag doesn't count for a light the LAN watches"
+    String route = lamp().currentValue("transport")
     conn().parse(lanEvent("192.168.1.50", [cmd: "scan", data: [ip: "192.168.1.50", device: LAMP, sku: "H6052"]]))
     hub.settle()
     assert lamp().currentValue("healthStatus") == "online", "a scan answer brings it back"
+    assert lamp().currentValue("transport") == route, "a scan answer says nothing about the route"
     app.state.lan = lanBefore
 }
 
@@ -744,11 +746,34 @@ check("API requests wait their turn, commands first, so Hubitat isn't left with 
     assert app.callsNamed("asynchttpPost").last()[1] == "apiControlResp"
     app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), sent[1][3])
     assert bodyOf(app.callsNamed("asynchttpPost").last()).payload.device == ids[4]
-    // An answer that never comes stops holding a slot.
+    // An answer that never comes stops holding a slot; what was waiting goes before the newcomer.
     hub.advance(60 * 1000L)
     int before = app.callsNamed("asynchttpPost").size()
     app.apiRequest("POST", "/device/state", [payload: [device: LAMP]], "apiStateResp", [id: LAMP])
-    assert app.callsNamed("asynchttpPost").size() == before + 1
+    assert app.callsNamed("asynchttpPost").drop(before).collect { bodyOf(it).payload.device } == [ids[5], LAMP]
+}
+
+check("API queue: a 429 holds the waiting reads but not commands; a rejected key drops what's waiting") {
+    app.class.API_OPEN.clear(); app.class.API_QUEUE.clear(); app.class.API_BACKOFF.clear(); app.class.API_KEY_BAD.clear()
+    int posts = app.callsNamed("asynchttpPost").size()
+    List ids = (1..6).collect { "AA:BB:CC:00:01:0${it}".toString() }
+    ids.each { app.apiRequest("POST", "/device/state", [payload: [device: it]], "apiStateResp", [id: it]) }
+    List sent = app.callsNamed("asynchttpPost").drop(posts)
+    // A newcomer read doesn't overtake a waiting command.
+    app.apiRequest("POST", "/device/control", [payload: [device: LAMP]], "apiControlResp", [id: LAMP, instance: "powerSwitch"])
+    app.apiStateResp(resp(429, [code: 429]), sent[0][3])
+    assert app.callsNamed("asynchttpPost").last()[1] == "apiControlResp", "commands still go during the pause"
+    app.apiStateResp(resp(429, [code: 429]), sent[1][3])
+    assert app.callsNamed("asynchttpPost").size() == posts + 5 && app.apiQueue().reads.size() == 2, "reads wait out the pause"
+    app.class.API_BACKOFF.clear()
+    app.apiRequest("POST", "/device/control", [payload: [device: FAN]], "apiControlResp", [id: FAN, instance: "powerSwitch"])
+    app.apiRequest("POST", "/device/control", [payload: [device: FAN]], "apiControlResp", [id: FAN, instance: "oscillationToggle"])
+    assert app.apiQueue().commands.size() == 1
+    app.apiStateResp(resp(401, [code: 401]), sent[2][3])
+    assert app.apiQueue().commands.isEmpty() && app.apiQueue().reads.isEmpty()
+    assert app.log.lines.any { it[1].contains("waiting command(s) not sent") }
+    assert app.callsNamed("asynchttpPost").size() == posts + 6, "the fan command went before the 401 (a slot was free)"
+    app.class.API_KEY_BAD.clear()
 }
 
 check("with the live connection down, commands go straight to the API") {
