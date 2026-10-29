@@ -739,24 +739,54 @@ check("health: a quiet LAN light is asked directly; no answer means offline, any
 check("health: a light that answers MQTT status requests is judged by them, LAN or not") {
     Map lanBefore = app.state.lan
     app.class.HEALTH_FROM[app.app.id as Long] = hub.scripts[0].now() - 20 * 60 * 1000L
-    app.class.LAST_IOT.clear(); app.class.PROBED.clear()
+    app.class.LAST_IOT.clear(); app.class.PROBED.clear(); app.class.ANSWERS.clear()
     app.state.lan = [:]
-    app.state.remove("answersStatus")
+    Map report = [msg: [sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]]]
     app.checkHealth()
-    // An answer within the wait: it answers status requests.
-    mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]]])
-    assert app.state.answersStatus[LAMP] && lamp().currentValue("healthStatus") == "online"
-    assert !app.state.answersStatus[FAN]
+    mqtt(report)
+    mqtt(report)
+    assert !app.answersStatus(LAMP), "one request answered could be a coincidence (two reports, one request)"
+    hub.advance(17 * 60 * 1000L)
+    app.checkHealth()
+    mqtt(report)
+    assert app.answersStatus(LAMP) && !app.answersStatus(FAN)
     // Quiet again later: asked, no answer, offline.
     hub.advance(17 * 60 * 1000L)
     app.checkHealth()
     hub.advance((app.class.PROBE_WAIT_S + 1) * 1000L)
     app.judgeHealth()
     assert lamp().currentValue("healthStatus") == "offline"
-    // Any word from it brings it back.
-    mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]]])
-    assert lamp().currentValue("healthStatus") == "online"
+    // The next poll asks again and reads the API at once: the cloud's word mustn't flip it back.
+    hub.advance(5 * 60 * 1000L)
+    app.checkHealth()
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: [[instance: "online", state: [value: true]]]]]), [id: LAMP])
+    assert lamp().currentValue("healthStatus") == "offline", "asking again doesn't restart the wait"
+    mqtt(report)
+    assert lamp().currentValue("healthStatus") == "online", "any word from it brings it back"
     app.state.lan = lanBefore
+}
+
+check("health: LAN silence stops counting a day after the light last answered on the LAN") {
+    Map lanBefore = app.state.lan
+    long t = hub.scripts[0].now()
+    app.class.LAST_IOT.clear(); app.class.ANSWERS.clear()
+    app.state.lan = [(LAMP): [ip: "192.168.1.50", at: t - 25 * 3600 * 1000L], other: [ip: "192.168.1.51", at: t]]
+    app.class.PROBED[LAMP] = t - 60 * 1000L
+    assert app.healthOf(LAMP, true) == true, "LAN control turned off or a new network: Govee's flag again"
+    app.state.lan[LAMP].at = t - 20 * 60 * 1000L
+    assert app.healthOf(LAMP, true) == false
+    app.state.lan = lanBefore
+}
+
+check("discovery with a rejected key finishes from the account's list, without the API") {
+    app.class.API_KEY_BAD[app.app.id as Long] = [key: app.settings.apiKey.hashCode(), until: hub.scripts[0].now() + 3600 * 1000L]
+    int gets = app.callsNamed("asynchttpGet").size()
+    app.accountDevicesResp(resp(200, [status: 200, devices: [
+        [sku: "H6052", deviceName: "Aura Table Lamp", device: LAMP, deviceExt: [deviceSettings: [topic: topic(LAMP)]]],
+    ]]), [:])
+    hub.settle()
+    assert app.callsNamed("asynchttpGet").size() == gets && app.state.discovered[LAMP]
+    app.class.API_KEY_BAD.clear()
 }
 
 check("API requests wait their turn, commands first, so Hubitat isn't left with a pile pending") {
