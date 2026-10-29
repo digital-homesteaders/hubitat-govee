@@ -37,6 +37,9 @@ Map bodyOf(List call) { new JsonSlurper().parseText(call[2].body) }
 List published(int from = 0) { hub.scripts.collectMany { it.callsNamed("mqtt.publish") }.drop(from) }
 int pubCount() { published().size() }
 
+// The fake hub never answers HTTP itself: requests a check leaves open mustn't hold up the next.
+Check.before = { app.class.API_OPEN.clear(); app.class.API_QUEUE.clear(); app.class.PROBED.clear() }
+
 void mqtt(Map msg) {
     conn().parse(JsonOutput.toJson([topic: ACCOUNT_TOPIC, payload: JsonOutput.toJson(msg)]))
     hub.settle()
@@ -694,6 +697,141 @@ check("polling reads fans and quiet devices, not lights that report over MQTT") 
     app.pollQuiet()
     ids = app.callsNamed("asynchttpPost").drop(posts).collect { bodyOf(it).payload.device }
     assert ids as Set == [FAN, LAMP] as Set
+}
+
+check("health: a quiet LAN light is asked directly; no answer means offline, any word from it means online") {
+    Map lanBefore = app.state.lan
+    Long id = app.app.id as Long
+    long t = hub.scripts[0].now()
+    long old = t - 20 * 60 * 1000L
+    mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]]])
+    assert lamp().currentValue("healthStatus") == "online", "a report from the light itself means online"
+    String transport = lamp().currentValue("transport")
+    app.class.LAST_IOT.clear(); app.class.PROBED.clear()
+    app.state.lan = [(LAMP): [ip: "192.168.1.50", at: old], other: [ip: "192.168.1.51", at: t]]
+    app.class.HEALTH_FROM[id] = t
+    int acts = conn().driver.callsNamed("sendHubCommand").size()
+    app.checkHealth()
+    assert hubActions(acts).isEmpty() && !app.class.PROBED, "nobody is asked in the first minutes after a start"
+    app.class.HEALTH_FROM[id] = old
+    int pubs = pubCount()
+    app.checkHealth()
+    assert hubActions(acts) == [["192.168.1.50:4003", [cmd: "devStatus", data: [:]]]], "asked straight at its LAN address"
+    assert published(pubs).any { it[1] == topic(LAMP) && new JsonSlurper().parseText(it[2]).msg.cmd == "status" }, "and over MQTT"
+    app.judgeHealth()
+    assert lamp().currentValue("healthStatus") == "online", "given time to answer"
+    hub.advance((app.class.PROBE_WAIT_S + 1) * 1000L)
+    app.judgeHealth()
+    hub.settle()
+    assert lamp().currentValue("healthStatus") == "offline" && lamp().currentValue("transport") == transport
+    assert app.log.lines.any { it[1].contains("didn't answer when asked directly") }
+    assert fan().currentValue("healthStatus") != "offline", "the fan was asked over MQTT but never answers status: its silence says nothing"
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: [[instance: "online", state: [value: true]]]]]), [id: LAMP])
+    assert lamp().currentValue("healthStatus") == "offline", "the cloud's flag doesn't outweigh an unanswered request"
+    String route = lamp().currentValue("transport")
+    conn().parse(lanEvent("192.168.1.50", [cmd: "scan", data: [ip: "192.168.1.50", device: LAMP, sku: "H6052"]]))
+    hub.settle()
+    assert lamp().currentValue("healthStatus") == "online", "a scan answer brings it back"
+    assert lamp().currentValue("transport") == route, "a scan answer says nothing about the route"
+    app.state.lan = lanBefore
+}
+
+check("health: a light that answers MQTT status requests is judged by them, LAN or not") {
+    Map lanBefore = app.state.lan
+    app.class.HEALTH_FROM[app.app.id as Long] = hub.scripts[0].now() - 20 * 60 * 1000L
+    app.class.LAST_IOT.clear(); app.class.PROBED.clear(); app.class.ANSWERS.clear()
+    app.state.lan = [:]
+    Map report = [msg: [sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]]]
+    app.checkHealth()
+    mqtt(report)
+    mqtt(report)
+    assert !app.answersStatus(LAMP), "one request answered could be a coincidence (two reports, one request)"
+    hub.advance(17 * 60 * 1000L)
+    app.checkHealth()
+    mqtt(report)
+    assert app.answersStatus(LAMP) && !app.answersStatus(FAN)
+    // Quiet again later: asked, no answer, offline.
+    hub.advance(17 * 60 * 1000L)
+    app.checkHealth()
+    hub.advance((app.class.PROBE_WAIT_S + 1) * 1000L)
+    app.judgeHealth()
+    assert lamp().currentValue("healthStatus") == "offline"
+    // The next poll asks again and reads the API at once: the cloud's word mustn't flip it back.
+    hub.advance(5 * 60 * 1000L)
+    app.checkHealth()
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: [[instance: "online", state: [value: true]]]]]), [id: LAMP])
+    assert lamp().currentValue("healthStatus") == "offline", "asking again doesn't restart the wait"
+    mqtt(report)
+    assert lamp().currentValue("healthStatus") == "online", "any word from it brings it back"
+    app.state.lan = lanBefore
+}
+
+check("health: LAN silence stops counting a day after the light last answered on the LAN") {
+    Map lanBefore = app.state.lan
+    long t = hub.scripts[0].now()
+    app.class.LAST_IOT.clear(); app.class.ANSWERS.clear()
+    app.state.lan = [(LAMP): [ip: "192.168.1.50", at: t - 25 * 3600 * 1000L], other: [ip: "192.168.1.51", at: t]]
+    app.class.PROBED[LAMP] = t - 60 * 1000L
+    assert app.healthOf(LAMP, true) == true, "LAN control turned off or a new network: Govee's flag again"
+    app.state.lan[LAMP].at = t - 20 * 60 * 1000L
+    assert app.healthOf(LAMP, true) == false
+    app.state.lan = lanBefore
+}
+
+check("discovery with a rejected key finishes from the account's list, without the API") {
+    app.class.API_KEY_BAD[app.app.id as Long] = [key: app.settings.apiKey.hashCode(), until: hub.scripts[0].now() + 3600 * 1000L]
+    int gets = app.callsNamed("asynchttpGet").size()
+    app.accountDevicesResp(resp(200, [status: 200, devices: [
+        [sku: "H6052", deviceName: "Aura Table Lamp", device: LAMP, deviceExt: [deviceSettings: [topic: topic(LAMP)]]],
+    ]]), [:])
+    hub.settle()
+    assert app.callsNamed("asynchttpGet").size() == gets && app.state.discovered[LAMP]
+    app.class.API_KEY_BAD.clear()
+}
+
+check("API requests wait their turn, commands first, so Hubitat isn't left with a pile pending") {
+    app.class.API_OPEN.clear(); app.class.API_QUEUE.clear()
+    int posts = app.callsNamed("asynchttpPost").size()
+    List ids = (1..6).collect { "AA:BB:CC:00:00:0${it}".toString() }
+    ids.each { app.apiRequest("POST", "/device/state", [payload: [device: it]], "apiStateResp", [id: it]) }
+    app.apiRequest("POST", "/device/state", [payload: [device: ids[5]]], "apiStateResp", [id: ids[5]])
+    List sent = app.callsNamed("asynchttpPost").drop(posts)
+    assert sent.size() == 4, "no more than four at once"
+    assert app.apiQueue().reads.size() == 2, "a read already waiting isn't queued twice"
+    app.apiRequest("POST", "/device/control", [payload: [device: LAMP]], "apiControlResp", [id: LAMP, instance: "powerSwitch"])
+    // An answer frees a slot: the command goes ahead of the reads.
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), sent[0][3])
+    assert app.callsNamed("asynchttpPost").last()[1] == "apiControlResp"
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), sent[1][3])
+    assert bodyOf(app.callsNamed("asynchttpPost").last()).payload.device == ids[4]
+    // An answer that never comes stops holding a slot; what was waiting goes before the newcomer.
+    hub.advance(60 * 1000L)
+    int before = app.callsNamed("asynchttpPost").size()
+    app.apiRequest("POST", "/device/state", [payload: [device: LAMP]], "apiStateResp", [id: LAMP])
+    assert app.callsNamed("asynchttpPost").drop(before).collect { bodyOf(it).payload.device } == [ids[5], LAMP]
+}
+
+check("API queue: a 429 holds the waiting reads but not commands; a rejected key drops what's waiting") {
+    app.class.API_OPEN.clear(); app.class.API_QUEUE.clear(); app.class.API_BACKOFF.clear(); app.class.API_KEY_BAD.clear()
+    int posts = app.callsNamed("asynchttpPost").size()
+    List ids = (1..6).collect { "AA:BB:CC:00:01:0${it}".toString() }
+    ids.each { app.apiRequest("POST", "/device/state", [payload: [device: it]], "apiStateResp", [id: it]) }
+    List sent = app.callsNamed("asynchttpPost").drop(posts)
+    // A newcomer read doesn't overtake a waiting command.
+    app.apiRequest("POST", "/device/control", [payload: [device: LAMP]], "apiControlResp", [id: LAMP, instance: "powerSwitch"])
+    app.apiStateResp(resp(429, [code: 429]), sent[0][3])
+    assert app.callsNamed("asynchttpPost").last()[1] == "apiControlResp", "commands still go during the pause"
+    app.apiStateResp(resp(429, [code: 429]), sent[1][3])
+    assert app.callsNamed("asynchttpPost").size() == posts + 5 && app.apiQueue().reads.size() == 2, "reads wait out the pause"
+    app.class.API_BACKOFF.clear()
+    app.apiRequest("POST", "/device/control", [payload: [device: FAN]], "apiControlResp", [id: FAN, instance: "powerSwitch"])
+    app.apiRequest("POST", "/device/control", [payload: [device: FAN]], "apiControlResp", [id: FAN, instance: "oscillationToggle"])
+    assert app.apiQueue().commands.size() == 1
+    app.apiStateResp(resp(401, [code: 401]), sent[2][3])
+    assert app.apiQueue().commands.isEmpty() && app.apiQueue().reads.isEmpty()
+    assert app.log.lines.any { it[1].contains("waiting command(s) not sent") }
+    assert app.callsNamed("asynchttpPost").size() == posts + 6, "the fan command went before the 401 (a slot was free)"
+    app.class.API_KEY_BAD.clear()
 }
 
 check("with the live connection down, commands go straight to the API") {

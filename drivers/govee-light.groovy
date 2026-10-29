@@ -12,7 +12,7 @@
 import groovy.transform.Field
 import java.util.concurrent.ConcurrentHashMap
 
-@Field static final String DRIVER_VERSION = "0.4.7"
+@Field static final String DRIVER_VERSION = "0.4.8"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Light"
 
@@ -329,9 +329,10 @@ private void clearRefused() {
 }
 
 
-/** Merge reported state; `source` is "iot" or "api". */
+/** Merge reported state; `source` is "lan", "iot" or "api", or null for the app's own conclusion. */
 void goveeUpdate(Map reported, String source) {
-    goveeSeen(source)
+    // No source: the app's own conclusion (offline), not something heard.
+    if (source) goveeSeen(source)
     merge(reported)
 }
 

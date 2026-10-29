@@ -48,7 +48,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.4.7"
+@Field static final String VERSION = "0.4.8"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -75,6 +75,23 @@ preferences {
 @Field static final long IOT_RETRY_MS = 7 * 24 * 3600 * 1000L
 // A LAN address not heard from in a scan for this long isn't used.
 @Field static final long LAN_STALE_MS = 16 * 60 * 1000L
+// A device not heard from for LAN_STALE_MS is asked for its status: directly at its LAN
+// address, and over MQTT. No answer within PROBE_WAIT_S marks it offline, but only where
+// silence means something: a LAN device while other devices answer the scans, or one
+// that has answered MQTT status queries before (some never do) while MQTT is up.
+// Nobody is asked in the first LAN_STALE_MS after a start. HEALTH_FROM: by app id, when
+// watching began; PROBED: device id -> when first asked since it was last heard.
+@Field static final int PROBE_WAIT_S = 30
+@Field static final ConcurrentHashMap<Long, Long> HEALTH_FROM = new ConcurrentHashMap<>()
+@Field static final ConcurrentHashMap<String, Long> PROBED = new ConcurrentHashMap<>()
+// A device that answered this many separate status queries over MQTT answers them (one
+// could be a coincidence: a change made in the Govee app). In memory, relearned after a
+// restart. By device id: [n: answers, probe: the query last counted].
+@Field static final int STATUS_ANSWERS_TO_TRUST = 2
+@Field static final ConcurrentHashMap<String, Map> ANSWERS = new ConcurrentHashMap<>()
+// LAN silence counts only for a device that answered on the LAN this recently: one whose
+// LAN control was turned off, or that moved network, stops being judged by it.
+@Field static final long LAN_TRUST_MS = 24 * 3600 * 1000L
 // LAN commands a device didn't confirm, in a row, before LAN is paused for it, and for how long.
 @Field static final int LAN_MISSES_OFF = 2
 @Field static final long LAN_OFF_MS = 3600 * 1000L
@@ -110,6 +127,13 @@ preferences {
 // A light's scene lists that failed to load are tried again after this long.
 @Field static final ConcurrentHashMap<String, Long> SCENES_TRIED = new ConcurrentHashMap<>()
 @Field static final long SCENES_RETRY_MS = 30 * 60 * 1000L
+// At most this many Platform API requests await an answer at once; the rest
+// queue, commands ahead of reads. A poll or scene reload used to send one per
+// device together, and Hubitat warns from 9 pending. By app id: API_OPEN maps
+// each open request to when it went, API_QUEUE holds [commands: [], reads: []].
+@Field static final int API_MAX_OPEN = 4
+@Field static final ConcurrentHashMap<Long, Map> API_OPEN = new ConcurrentHashMap<>()
+@Field static final ConcurrentHashMap<Long, Map> API_QUEUE = new ConcurrentHashMap<>()
 // Govee's scene library per model (sku -> [p: paramId -> [code, param], s: sceneId -> ...]),
 // for running scenes over the LAN. Kept in memory only: fetched again after a
 // reboot or code save, the first time a lamp of that model is seen on the LAN.
@@ -342,6 +366,7 @@ void initialize() {
     getConnection()?.connectMqtt()
     if (settings.lanEnable != false) getConnection()?.lanStart()
     else getConnection()?.lanStop()
+    HEALTH_FROM[app.id as Long] = now()
     loadScenes()
     int minutes = ((settings.pollMinutes ?: "5") as int)
     schedule("0 */${minutes} * ? * *", "pollQuiet")
@@ -586,7 +611,8 @@ private void accountDevices(resp) {
     log.info "Govee: the account lists ${found.size()} device(s)"
     state.accountDevices = found
     state.discoveredAt = now()
-    if (apiKey()) {
+    // A rejected key would be refused: the account's list is enough, as without a key.
+    if (apiKey() && !apiKeyRejected()) {
         apiRequest("GET", "/user/devices", null, "apiDevicesResp")
     } else {
         finishDiscovery([:])
@@ -756,11 +782,16 @@ void iotMessage(Map msg) {
     if (!cd) return
     String via = msg.via ?: "iot"
     noteIot(id, now())
+    if (via == "iot") noteStatusAnswer(id)
     Map s = normalizeIot(msg.state instanceof Map ? msg.state : [:])
+    // Govee's own connected: false wins; otherwise the device was just heard from.
+    Boolean online = s.remove("online") == false ? false : healthOf(id)
     if (!s) {
         cd.goveeSeen(via)
+        setHealth(cd, online)
         return
     }
+    s.online = online
     if (s.mode != null && cd.getDataValue("kind") == "light") s.putAll(sceneFromMode(id, s.mode, LAST_MODE.put(id, s.mode.toString())))
     cd.goveeUpdate(s, via)
     // Fans report only power over MQTT: read speed and mode once power changes.
@@ -1247,6 +1278,7 @@ void lanFound(String id, String ip, String sku) {
         log.info "Govee: ${cd.displayName} found on the LAN at ${ip}"
         cd.updateDataValue("lanIp", ip)
     }
+    setHealth(cd, healthOf(id))
     if (cd.getDataValue("kind") == "light" && "lightScene" in (capsOf(cd).instances ?: [])) ensureLibrary(cd.getDataValue("sku"))
 }
 
@@ -1432,6 +1464,108 @@ void lanConfirmed(String id) {
     }
 }
 
+// ---------------------------------------------------------------- health
+
+/**
+ * Whether a device is online: online if it reported over MQTT or the LAN (a scan
+ * answer counts) within LAN_STALE_MS; offline if it was asked since and stayed silent
+ * where silence means something (see probeCounts); otherwise `cloud`, Govee's flag, or
+ * null for no opinion. The cloud's flag has said online for a light that was off Wi-Fi,
+ * so it comes last.
+ */
+Boolean healthOf(String id, Boolean cloud = null) {
+    long t = now()
+    Long heard = lastHeard(id)
+    if (heard != null && t - heard <= LAN_STALE_MS) return true
+    Long asked = PROBED.get(id)
+    boolean unanswered = asked != null && (heard == null || heard < asked) && t - asked >= PROBE_WAIT_S * 1000L
+    if (unanswered && probeCounts(id)) return false
+    return cloud
+}
+
+/** When the device was last heard from, over MQTT or the LAN; null if not since the hub started. */
+private Long lastHeard(String id) {
+    Map l = settings.lanEnable != false ? (state.lan ?: [:])[id] : null
+    return [LAST_IOT.get(id), l?.at as Long].findAll { it != null }.max()
+}
+
+/** Whether no answer to a status request means offline (rather than a route that's down, or a device that never answers). */
+private boolean probeCounts(String id) {
+    Map l = settings.lanEnable != false ? (state.lan ?: [:])[id] : null
+    if (l && now() - ((l.at ?: 0) as long) <= LAN_TRUST_MS && lanScansWork()) return true
+    return answersStatus(id) && liveUp()
+}
+
+boolean answersStatus(String id) { ((ANSWERS.get(id)?.n ?: 0) as int) >= STATUS_ANSWERS_TO_TRUST }
+
+private boolean liveUp() {
+    def conn = getConnection()
+    return conn && conn.currentValue("connection") == "connected"
+}
+
+/** Some device answered a LAN scan lately (they run every 5 minutes). */
+private boolean lanScansWork() {
+    long t = now()
+    return (state.lan ?: [:]).values().any { t - ((it.at ?: 0) as long) <= LAN_STALE_MS }
+}
+
+/** An MQTT message soon after a status request: once it happens for enough requests, the device's silence counts. */
+private void noteStatusAnswer(String id) {
+    Long asked = PROBED.get(id)
+    if (asked == null || now() - asked > PROBE_WAIT_S * 1000L) return
+    Map a = ANSWERS.get(id)
+    // One answer per request: a report and its echo are one.
+    if (a?.probe == asked) return
+    int n = ((a?.n ?: 0) as int) + 1
+    ANSWERS.put(id, [n: n, probe: asked])
+    if (n == STATUS_ANSWERS_TO_TRUST) logDebug "${deviceById(id)?.displayName}: answers MQTT status requests"
+}
+
+/** Show a health verdict without touching anything else; no opinion (null) or no change does nothing. */
+private void setHealth(def cd, Boolean online) {
+    if (online == null || cd.currentValue("healthStatus") == (online ? "online" : "offline")) return
+    cd.goveeUpdate([online: online], null)
+}
+
+/** Every poll: judge the devices asked last time, then ask the ones gone quiet (judged PROBE_WAIT_S later). */
+void checkHealth() {
+    judgeHealth()
+    long t = now()
+    Long from = HEALTH_FROM.putIfAbsent(app.id as Long, t)
+    if (from == null || t - from < LAN_STALE_MS) return
+    Map lan = settings.lanEnable != false ? (state.lan ?: [:]) : [:]
+    Map found = state.discovered ?: [:]
+    boolean live = liveUp()
+    List ips = []
+    Map topics = [:]
+    getGoveeDevices().each { cd ->
+        String id = cd.getDataValue("id")
+        Long heard = lastHeard(id)
+        if (heard != null && t - heard <= LAN_STALE_MS) return
+        String ip = lan[id]?.ip
+        String topic = live ? found[id]?.topic : null
+        if (ip) ips << ip
+        if (topic) topics[id] = topic
+        // Asking again doesn't restart the wait: the first unanswered request stands.
+        Long asked = PROBED.get(id)
+        if ((ip || topic) && (asked == null || (heard != null && heard >= asked))) PROBED.put(id, t)
+    }
+    def conn = getConnection()
+    if (ips) conn?.lanQuery(ips)
+    // An empty map would ask every device.
+    if (topics) conn?.queryStatus(topics)
+    if (ips || topics) runIn(PROBE_WAIT_S + 2, "judgeHealth")
+}
+
+/** Mark offline the devices that were asked and didn't answer. */
+void judgeHealth() {
+    getGoveeDevices().each { cd ->
+        if (healthOf(cd.getDataValue("id")) != false || cd.currentValue("healthStatus") == "offline") return
+        log.info "Govee: ${cd.displayName} didn't answer when asked directly; marking it offline"
+        setHealth(cd, false)
+    }
+}
+
 // ---------------------------------------------------------------- Platform API
 
 private void sendApi(String id, String sku, Map cap) {
@@ -1465,7 +1599,11 @@ void apiControlResp(resp, Map data) {
 
 /** Read the state of quiet devices: those with no MQTT message lately, and fans (MQTT gives only their power). */
 void pollQuiet() {
-    if (!apiKey() || apiPaused()) return
+    checkHealth()
+    if (!apiKey()) return
+    // Anything still waiting (an answer Hubitat never delivered holds no slot after a while).
+    apiDrain()
+    if (apiPaused()) return
     loadScenes()
     long cutoff = now() - QUIET_MS
     getGoveeDevices().each { cd ->
@@ -1504,26 +1642,130 @@ void apiStateResp(resp, Map data) {
         logDebug "${cd.displayName}: state read failed (HTTP ${statusOf(resp)})"
         return
     }
-    cd.goveeUpdate(normalizeApi(caps), "api")
+    Map s = normalizeApi(caps)
+    Boolean online = healthOf(data.id as String, s.remove("online") as Boolean)
+    if (online != null) s.online = online
+    cd.goveeUpdate(s, "api")
 }
 
 private void apiRequest(String method, String path, Map body, String callback, Map cbData = [:]) {
-    Map params = [uri: OPENAPI + path, headers: ["Govee-API-Key": apiKey(), "Accept": "application/json"],
+    Map req = [method: method, path: path, body: body, callback: callback, cbData: cbData]
+    // Discovery is waited on (on the app page), so it goes with the commands.
+    boolean command = path in ["/device/control", "/user/devices"]
+    Map queue = apiQueue()[command ? "commands" : "reads"]
+    // A read already waiting for the same device would bring the same answer.
+    if (!command && queue.values().any { it.path == path && it.cbData?.id == cbData?.id && it.cbData?.kind == cbData?.kind }) return
+    // Everything joins the queue, so nothing overtakes what's already waiting.
+    putNew(queue, req)
+    apiDrain()
+    if (queue.containsValue(req)) logDebug "${method} ${path} waits its turn (${queue.size()} waiting)"
+}
+
+/**
+ * Put `v` in `m` under a new key that sorts after the keys put before it (the time in
+ * thousandths of a millisecond, moved past any key already taken). Hubitat's sandbox
+ * refuses atomic counters; putIfAbsent makes each key one caller's.
+ */
+private Long putNew(Map m, def v) {
+    long k = now() * 1000L
+    while (m.putIfAbsent(k, v) != null) k++
+    return k
+}
+
+/** Send a request in the slot `n` reserved for it in apiOpen(). */
+private void apiSend(Map req, Long n) {
+    Map params = [uri: OPENAPI + req.path, headers: ["Govee-API-Key": apiKey(), "Accept": "application/json"],
                   timeout: TIMEOUT, contentType: "application/json", textParser: true]
     // Which key it went with: a late answer for an old key says nothing about the new one.
-    cbData = cbData + [keyHash: apiKey()?.hashCode()]
-    if (body != null) {
+    Map cbData = (req.cbData ?: [:]) + [keyHash: apiKey()?.hashCode(), apiReq: n.toString(), path: req.path]
+    if (req.body != null) {
         params.requestContentType = "application/json"
-        params.body = JsonOutput.toJson(body)
+        params.body = JsonOutput.toJson(req.body)
     }
-    logDebug "${method} ${path}"
-    if (method == "POST") asynchttpPost(callback, params, cbData)
-    else asynchttpGet(callback, params, cbData)
+    logDebug "${req.method} ${req.path}"
+    try {
+        if (req.method == "POST") asynchttpPost(req.callback as String, params, cbData)
+        else asynchttpGet(req.callback as String, params, cbData)
+    } catch (e) {
+        // Never sent: it mustn't hold a slot until it goes stale.
+        apiOpen().remove(n)
+        log.warn "Govee: ${req.path} couldn't be sent: ${e.message}"
+    }
+}
+
+/** The requests awaiting an answer: slot key (see putNew) -> when sent. */
+private Map apiOpen() {
+    Long key = app.id as Long
+    API_OPEN.putIfAbsent(key, new ConcurrentHashMap())
+    Map open = API_OPEN[key]
+    // Hubitat answers a timeout too, but not across a reboot or code save: stop counting those.
+    long stale = now() - (TIMEOUT + 10) * 1000L
+    open.findAll { it.value < stale }.each { open.remove(it.key) }
+    return open
+}
+
+/** Waiting requests by kind, each keyed by a number that rises with time. */
+private Map apiQueue() {
+    Long key = app.id as Long
+    API_QUEUE.putIfAbsent(key, [commands: new ConcurrentHashMap(), reads: new ConcurrentHashMap()])
+    return API_QUEUE[key]
+}
+
+/**
+ * Send what's waiting while there's room: commands first, and reads only while
+ * the API isn't paused (they wait for the next answer or poll after the pause).
+ * With the key rejected, what's waiting would be refused too, so it's dropped.
+ */
+private void apiDrain() {
+    Map q = apiQueue()
+    if (apiKeyRejected()) {
+        boolean discovering = q.commands.values().any { it.path == "/user/devices" }
+        int n = q.commands.values().count { it.path == "/device/control" }
+        q.commands.clear()
+        q.reads.clear()
+        if (n) log.warn "Govee: ${n} waiting command(s) not sent: Govee rejected the API key"
+        if (discovering) finishDiscovery([:])
+        return
+    }
+    while (true) {
+        // Reserve a slot first: answers arriving together mustn't all see the same free one.
+        Map open = apiOpen()
+        Long n = putNew(open, now())
+        if (open.size() > API_MAX_OPEN) {
+            open.remove(n)
+            return
+        }
+        Map from = q.commands ?: (apiPaused() ? null : q.reads)
+        // Concurrent answers may reach for the same one: whoever removes it sends it.
+        def k = from ? from.keySet().min() : null
+        Map next = k != null ? from.remove(k) : null
+        if (next) {
+            apiSend(next, n)
+        } else {
+            open.remove(n)
+            if (!from) return
+        }
+    }
 }
 
 private Map apiJson(resp, Map data) {
+    if (data?.apiReq) apiOpen().remove(data.apiReq as Long)
+    // Only once this answer's 429 or 401 is noted: what's waiting must respect it.
+    try {
+        return apiAnswer(resp, data)
+    } finally {
+        apiDrain()
+    }
+}
+
+private Map apiAnswer(resp, Map data) {
     noteRateLimits(resp)
-    Map json = parseJson(bodyOf(resp))
+    String body = bodyOf(resp)
+    // State reads and commands are short; scene lists aren't worth the log space.
+    if (data?.path in ["/device/state", "/device/control"]) {
+        logDebug "${deviceById(data.id as String)?.displayName ?: data.id}: ${data.path} answered HTTP ${statusOf(resp)}: ${body.take(600)}"
+    }
+    Map json = parseJson(body)
     boolean keyNow = data?.keyHash == apiKey()?.hashCode()
     if (statusOf(resp) == 429) noteRateLimited()
     boolean rejected = statusOf(resp) == 401 || json?.code == 401

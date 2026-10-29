@@ -2,9 +2,12 @@
 class Check {
     static int passed = 0
     static List<String> failed = []
+    /** Run before each check, to reset what checks shouldn't share. */
+    static Closure before = null
 
     static void check(String name, Closure body) {
         try {
+            before?.call()
             body.call()
             passed++
         } catch (Throwable e) {
