@@ -38,7 +38,7 @@ List published(int from = 0) { hub.scripts.collectMany { it.callsNamed("mqtt.pub
 int pubCount() { published().size() }
 
 // The fake hub never answers HTTP itself: requests a check leaves open mustn't hold up the next.
-Check.before = { app.class.API_OPEN.clear(); app.class.API_QUEUE.clear() }
+Check.before = { app.class.API_OPEN.clear(); app.class.API_QUEUE.clear(); app.class.PROBED.clear() }
 
 void mqtt(Map msg) {
     conn().parse(JsonOutput.toJson([topic: ACCOUNT_TOPIC, payload: JsonOutput.toJson(msg)]))
@@ -699,7 +699,7 @@ check("polling reads fans and quiet devices, not lights that report over MQTT") 
     assert ids as Set == [FAN, LAMP] as Set
 }
 
-check("health: a LAN light that stops answering scans goes offline; any word from it brings it back") {
+check("health: a quiet LAN light is asked directly; no answer means offline, any word from it means online") {
     Map lanBefore = app.state.lan
     Long id = app.app.id as Long
     long t = hub.scripts[0].now()
@@ -707,27 +707,55 @@ check("health: a LAN light that stops answering scans goes offline; any word fro
     mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]]])
     assert lamp().currentValue("healthStatus") == "online", "a report from the light itself means online"
     String transport = lamp().currentValue("transport")
-    app.class.LAST_IOT.remove(LAMP)
+    app.class.LAST_IOT.clear(); app.class.PROBED.clear()
     app.state.lan = [(LAMP): [ip: "192.168.1.50", at: old], other: [ip: "192.168.1.51", at: t]]
-    app.class.LAN_WATCH_FROM[id] = t
+    app.class.HEALTH_FROM[id] = t
+    int acts = conn().driver.callsNamed("sendHubCommand").size()
     app.checkHealth()
-    assert lamp().currentValue("healthStatus") == "online", "not judged in the first minutes after a start"
-    app.class.LAN_WATCH_FROM[id] = old
-    app.state.lan.other.at = old
+    assert hubActions(acts).isEmpty() && !app.class.PROBED, "nobody is asked in the first minutes after a start"
+    app.class.HEALTH_FROM[id] = old
+    int pubs = pubCount()
     app.checkHealth()
-    assert lamp().currentValue("healthStatus") == "online", "no device answers the scans: they say nothing"
-    app.state.lan.other.at = t
-    app.checkHealth()
+    assert hubActions(acts) == [["192.168.1.50:4003", [cmd: "devStatus", data: [:]]]], "asked straight at its LAN address"
+    assert published(pubs).any { it[1] == topic(LAMP) && new JsonSlurper().parseText(it[2]).msg.cmd == "status" }, "and over MQTT"
+    app.judgeHealth()
+    assert lamp().currentValue("healthStatus") == "online", "given time to answer"
+    hub.advance((app.class.PROBE_WAIT_S + 1) * 1000L)
+    app.judgeHealth()
     hub.settle()
     assert lamp().currentValue("healthStatus") == "offline" && lamp().currentValue("transport") == transport
-    assert app.log.lines.any { it[1].contains("stopped answering on the LAN") }
+    assert app.log.lines.any { it[1].contains("didn't answer when asked directly") }
+    assert fan().currentValue("healthStatus") != "offline", "the fan was asked over MQTT but never answers status: its silence says nothing"
     app.apiStateResp(resp(200, [code: 200, payload: [capabilities: [[instance: "online", state: [value: true]]]]]), [id: LAMP])
-    assert lamp().currentValue("healthStatus") == "offline", "the cloud's flag doesn't count for a light the LAN watches"
+    assert lamp().currentValue("healthStatus") == "offline", "the cloud's flag doesn't outweigh an unanswered request"
     String route = lamp().currentValue("transport")
     conn().parse(lanEvent("192.168.1.50", [cmd: "scan", data: [ip: "192.168.1.50", device: LAMP, sku: "H6052"]]))
     hub.settle()
     assert lamp().currentValue("healthStatus") == "online", "a scan answer brings it back"
     assert lamp().currentValue("transport") == route, "a scan answer says nothing about the route"
+    app.state.lan = lanBefore
+}
+
+check("health: a light that answers MQTT status requests is judged by them, LAN or not") {
+    Map lanBefore = app.state.lan
+    app.class.HEALTH_FROM[app.app.id as Long] = hub.scripts[0].now() - 20 * 60 * 1000L
+    app.class.LAST_IOT.clear(); app.class.PROBED.clear()
+    app.state.lan = [:]
+    app.state.remove("answersStatus")
+    app.checkHealth()
+    // An answer within the wait: it answers status requests.
+    mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]]])
+    assert app.state.answersStatus[LAMP] && lamp().currentValue("healthStatus") == "online"
+    assert !app.state.answersStatus[FAN]
+    // Quiet again later: asked, no answer, offline.
+    hub.advance(17 * 60 * 1000L)
+    app.checkHealth()
+    hub.advance((app.class.PROBE_WAIT_S + 1) * 1000L)
+    app.judgeHealth()
+    assert lamp().currentValue("healthStatus") == "offline"
+    // Any word from it brings it back.
+    mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]]])
+    assert lamp().currentValue("healthStatus") == "online"
     app.state.lan = lanBefore
 }
 

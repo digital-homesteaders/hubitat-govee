@@ -199,14 +199,14 @@ Not yet tried on the hub:
       logs a drop a few seconds later.
 - [ ] API queue (0.4.8): no more "app has N pending asynchronous HTTP requests" warnings on
       the hour or after Look for new devices; commands still go straight away while a poll runs
-- [ ] Health from the LAN (0.4.8): unplug a LAN light; about 15-20 minutes later it shows
-      `healthStatus` offline and the log says it stopped answering on the LAN. Plug it back in:
-      online again within 5 minutes. Other lights stay online throughout, and nothing goes
-      offline in the first 16 minutes after a reboot or Done.
-- [ ] Offline lights not on the LAN (H6072, H605B, H6052): with debug logging on, unplug one,
-      press Refresh, and save the `/device/state answered` line. 2026-10-28: the H6095 was off
-      Wi-Fi (Bluetooth only in the Govee app) yet the cloud said online; we need Govee's reply
-      to mark these offline
+- [ ] Health (0.4.8): unplug a LAN light; about 16-22 minutes later it shows `healthStatus`
+      offline and the log says it didn't answer when asked directly. Plug it back in: online
+      again within 5 minutes. Other lights stay online throughout, and nothing goes offline in
+      the first 16 minutes after a reboot or Done. With debug logging on, look for "answers MQTT
+      status requests": the lights that say it are judged over MQTT too, LAN or not
+- [ ] Unplug a light that isn't on the LAN (H6072, H6052) and has logged "answers MQTT status
+      requests": it should go offline the same way. One that never answers (H605B, maybe) keeps
+      Govee's cloud flag; with debug logging, save its `/device/state answered` line while unplugged
 - [x] HPM: Install → From a URL with the manifest link installs the app and three drivers
       (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
 - [ ] HPM: a new release shows up under Update (0.4.5 is the first to try)

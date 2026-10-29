@@ -75,11 +75,15 @@ preferences {
 @Field static final long IOT_RETRY_MS = 7 * 24 * 3600 * 1000L
 // A LAN address not heard from in a scan for this long isn't used.
 @Field static final long LAN_STALE_MS = 16 * 60 * 1000L
-// A device seen on the LAN that has missed scans for LAN_STALE_MS, with nothing over
-// MQTT either, is marked offline, but only while other devices still answer the scans
-// (so a broken scan says nothing) and not in the first LAN_STALE_MS after a start.
-// By app id: when watching began.
-@Field static final ConcurrentHashMap<Long, Long> LAN_WATCH_FROM = new ConcurrentHashMap<>()
+// A device not heard from for LAN_STALE_MS is asked for its status: directly at its LAN
+// address, and over MQTT. No answer within PROBE_WAIT_S marks it offline, but only where
+// silence means something: a LAN device while other devices answer the scans, or one
+// that has answered an MQTT status query before (some never do) while MQTT is up.
+// Nobody is asked in the first LAN_STALE_MS after a start. HEALTH_FROM: by app id, when
+// watching began; PROBED: device id -> when last asked.
+@Field static final int PROBE_WAIT_S = 30
+@Field static final ConcurrentHashMap<Long, Long> HEALTH_FROM = new ConcurrentHashMap<>()
+@Field static final ConcurrentHashMap<String, Long> PROBED = new ConcurrentHashMap<>()
 // LAN commands a device didn't confirm, in a row, before LAN is paused for it, and for how long.
 @Field static final int LAN_MISSES_OFF = 2
 @Field static final long LAN_OFF_MS = 3600 * 1000L
@@ -355,7 +359,7 @@ void initialize() {
     getConnection()?.connectMqtt()
     if (settings.lanEnable != false) getConnection()?.lanStart()
     else getConnection()?.lanStop()
-    LAN_WATCH_FROM[app.id as Long] = now()
+    HEALTH_FROM[app.id as Long] = now()
     loadScenes()
     int minutes = ((settings.pollMinutes ?: "5") as int)
     schedule("0 */${minutes} * ? * *", "pollQuiet")
@@ -770,6 +774,7 @@ void iotMessage(Map msg) {
     if (!cd) return
     String via = msg.via ?: "iot"
     noteIot(id, now())
+    if (via == "iot") noteStatusAnswer(id)
     Map s = normalizeIot(msg.state instanceof Map ? msg.state : [:])
     // Govee's own connected: false wins; otherwise the device was just heard from.
     Boolean online = s.remove("online") == false ? false : healthOf(id)
@@ -1454,22 +1459,37 @@ void lanConfirmed(String id) {
 // ---------------------------------------------------------------- health
 
 /**
- * Whether a device is online, from when it was last heard: online if it reported over
- * MQTT or the LAN (a scan answer counts) within LAN_STALE_MS; offline if it's a LAN
- * device gone silent while other devices still answer the scans (not judged in the
- * first LAN_STALE_MS after a start); otherwise `cloud`, Govee's flag, or null for no
- * opinion. The cloud's flag has said online for a light that was off Wi-Fi, so it comes last.
+ * Whether a device is online: online if it reported over MQTT or the LAN (a scan
+ * answer counts) within LAN_STALE_MS; offline if it was asked since and stayed silent
+ * where silence means something (see probeCounts); otherwise `cloud`, Govee's flag, or
+ * null for no opinion. The cloud's flag has said online for a light that was off Wi-Fi,
+ * so it comes last.
  */
 Boolean healthOf(String id, Boolean cloud = null) {
     long t = now()
-    Map l = settings.lanEnable != false ? (state.lan ?: [:])[id] : null
-    Long heard = [LAST_IOT.get(id), l?.at as Long].findAll { it != null }.max()
+    Long heard = lastHeard(id)
     if (heard != null && t - heard <= LAN_STALE_MS) return true
-    if (l && lanScansWork()) {
-        Long from = LAN_WATCH_FROM.putIfAbsent(app.id as Long, t)
-        if (from != null && t - from >= LAN_STALE_MS) return false
-    }
+    Long asked = PROBED.get(id)
+    boolean unanswered = asked != null && (heard == null || heard < asked) && t - asked >= PROBE_WAIT_S * 1000L
+    if (unanswered && probeCounts(id)) return false
     return cloud
+}
+
+/** When the device was last heard from, over MQTT or the LAN; null if not since the hub started. */
+private Long lastHeard(String id) {
+    Map l = settings.lanEnable != false ? (state.lan ?: [:])[id] : null
+    return [LAST_IOT.get(id), l?.at as Long].findAll { it != null }.max()
+}
+
+/** Whether no answer to a status request means offline (rather than a route that's down, or a device that never answers). */
+private boolean probeCounts(String id) {
+    if (settings.lanEnable != false && (state.lan ?: [:])[id] && lanScansWork()) return true
+    return (state.answersStatus ?: [:])[id] && liveUp()
+}
+
+private boolean liveUp() {
+    def conn = getConnection()
+    return conn && conn.currentValue("connection") == "connected"
 }
 
 /** Some device answered a LAN scan lately (they run every 5 minutes). */
@@ -1478,17 +1498,55 @@ private boolean lanScansWork() {
     return (state.lan ?: [:]).values().any { t - ((it.at ?: 0) as long) <= LAN_STALE_MS }
 }
 
+/** An MQTT message soon after a status request: this device answers them, so its silence will count. */
+private void noteStatusAnswer(String id) {
+    Long asked = PROBED.get(id)
+    if (asked == null || now() - asked > PROBE_WAIT_S * 1000L || (state.answersStatus ?: [:])[id]) return
+    Map a = state.answersStatus ?: [:]
+    a[id] = true
+    state.answersStatus = a
+    logDebug "${deviceById(id)?.displayName}: answers MQTT status requests"
+}
+
 /** Show a health verdict without touching anything else; no opinion (null) or no change does nothing. */
 private void setHealth(def cd, Boolean online) {
     if (online == null || cd.currentValue("healthStatus") == (online ? "online" : "offline")) return
     cd.goveeUpdate([online: online], null)
 }
 
-/** Mark offline the devices gone silent (only LAN devices can be judged so). */
+/** Every poll: judge the devices asked last time, then ask the ones gone quiet (judged PROBE_WAIT_S later). */
 void checkHealth() {
+    judgeHealth()
+    long t = now()
+    Long from = HEALTH_FROM.putIfAbsent(app.id as Long, t)
+    if (from == null || t - from < LAN_STALE_MS) return
+    Map lan = settings.lanEnable != false ? (state.lan ?: [:]) : [:]
+    Map found = state.discovered ?: [:]
+    boolean live = liveUp()
+    List ips = []
+    Map topics = [:]
+    getGoveeDevices().each { cd ->
+        String id = cd.getDataValue("id")
+        Long heard = lastHeard(id)
+        if (heard != null && t - heard <= LAN_STALE_MS) return
+        String ip = lan[id]?.ip
+        String topic = live ? found[id]?.topic : null
+        if (ip) ips << ip
+        if (topic) topics[id] = topic
+        if (ip || topic) PROBED.put(id, t)
+    }
+    def conn = getConnection()
+    if (ips) conn?.lanQuery(ips)
+    // An empty map would ask every device.
+    if (topics) conn?.queryStatus(topics)
+    if (ips || topics) runIn(PROBE_WAIT_S + 2, "judgeHealth")
+}
+
+/** Mark offline the devices that were asked and didn't answer. */
+void judgeHealth() {
     getGoveeDevices().each { cd ->
         if (healthOf(cd.getDataValue("id")) != false || cd.currentValue("healthStatus") == "offline") return
-        log.info "Govee: ${cd.displayName} has stopped answering on the LAN; marking it offline"
+        log.info "Govee: ${cd.displayName} didn't answer when asked directly; marking it offline"
         setHealth(cd, false)
     }
 }
