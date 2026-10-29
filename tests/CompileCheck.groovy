@@ -39,6 +39,14 @@ files.each { File f ->
     }
 }
 
+// Classes Hubitat's sandbox refuses ("Importing [...] is not allowed"), even fully qualified.
+files.each { File f ->
+    check("no classes the sandbox refuses: ${f.name}") {
+        List bad = ["java.util.concurrent.atomic", "AtomicLong", "AtomicInteger", "Collections.synchronized", "synchronized (", "java.lang.reflect", "java.io.File"].findAll { f.text.contains(it) }
+        assert !bad
+    }
+}
+
 // Pasting into Hubitat's editor can garble non-ASCII text (an ellipsis became "‚Ä¶").
 files.each { File f ->
     check("ASCII only: ${f.name}") {

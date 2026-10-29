@@ -134,7 +134,6 @@ preferences {
 @Field static final int API_MAX_OPEN = 4
 @Field static final ConcurrentHashMap<Long, Map> API_OPEN = new ConcurrentHashMap<>()
 @Field static final ConcurrentHashMap<Long, Map> API_QUEUE = new ConcurrentHashMap<>()
-@Field static final java.util.concurrent.atomic.AtomicLong API_SEQ = new java.util.concurrent.atomic.AtomicLong()
 // Govee's scene library per model (sku -> [p: paramId -> [code, param], s: sceneId -> ...]),
 // for running scenes over the LAN. Kept in memory only: fetched again after a
 // reboot or code save, the first time a lamp of that model is seen on the LAN.
@@ -1657,17 +1656,28 @@ private void apiRequest(String method, String path, Map body, String callback, M
     // A read already waiting for the same device would bring the same answer.
     if (!command && queue.values().any { it.path == path && it.cbData?.id == cbData?.id && it.cbData?.kind == cbData?.kind }) return
     // Everything joins the queue, so nothing overtakes what's already waiting.
-    queue.put(API_SEQ.incrementAndGet(), req)
+    putNew(queue, req)
     apiDrain()
     if (queue.containsValue(req)) logDebug "${method} ${path} waits its turn (${queue.size()} waiting)"
 }
 
+/**
+ * Put `v` in `m` under a new key that sorts after the keys put before it (the time in
+ * thousandths of a millisecond, moved past any key already taken). Hubitat's sandbox
+ * refuses atomic counters; putIfAbsent makes each key one caller's.
+ */
+private Long putNew(Map m, def v) {
+    long k = now() * 1000L
+    while (m.putIfAbsent(k, v) != null) k++
+    return k
+}
+
 /** Send a request in the slot `n` reserved for it in apiOpen(). */
-private void apiSend(Map req, String n) {
+private void apiSend(Map req, Long n) {
     Map params = [uri: OPENAPI + req.path, headers: ["Govee-API-Key": apiKey(), "Accept": "application/json"],
                   timeout: TIMEOUT, contentType: "application/json", textParser: true]
     // Which key it went with: a late answer for an old key says nothing about the new one.
-    Map cbData = (req.cbData ?: [:]) + [keyHash: apiKey()?.hashCode(), apiReq: n, path: req.path]
+    Map cbData = (req.cbData ?: [:]) + [keyHash: apiKey()?.hashCode(), apiReq: n.toString(), path: req.path]
     if (req.body != null) {
         params.requestContentType = "application/json"
         params.body = JsonOutput.toJson(req.body)
@@ -1683,7 +1693,7 @@ private void apiSend(Map req, String n) {
     }
 }
 
-/** The requests awaiting an answer: request number -> when sent. */
+/** The requests awaiting an answer: slot key (see putNew) -> when sent. */
 private Map apiOpen() {
     Long key = app.id as Long
     API_OPEN.putIfAbsent(key, new ConcurrentHashMap())
@@ -1719,9 +1729,8 @@ private void apiDrain() {
     }
     while (true) {
         // Reserve a slot first: answers arriving together mustn't all see the same free one.
-        String n = API_SEQ.incrementAndGet().toString()
         Map open = apiOpen()
-        open.put(n, now())
+        Long n = putNew(open, now())
         if (open.size() > API_MAX_OPEN) {
             open.remove(n)
             return
@@ -1740,7 +1749,7 @@ private void apiDrain() {
 }
 
 private Map apiJson(resp, Map data) {
-    if (data?.apiReq) apiOpen().remove(data.apiReq)
+    if (data?.apiReq) apiOpen().remove(data.apiReq as Long)
     // Only once this answer's 429 or 401 is noted: what's waiting must respect it.
     try {
         return apiAnswer(resp, data)
