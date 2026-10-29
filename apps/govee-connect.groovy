@@ -110,6 +110,14 @@ preferences {
 // A light's scene lists that failed to load are tried again after this long.
 @Field static final ConcurrentHashMap<String, Long> SCENES_TRIED = new ConcurrentHashMap<>()
 @Field static final long SCENES_RETRY_MS = 30 * 60 * 1000L
+// At most this many Platform API requests await an answer at once; the rest
+// queue, commands ahead of reads. A poll or scene reload used to send one per
+// device together, and Hubitat warns from 9 pending. By app id: API_OPEN maps
+// each open request to when it went, API_QUEUE holds [commands: [], reads: []].
+@Field static final int API_MAX_OPEN = 4
+@Field static final ConcurrentHashMap<Long, Map> API_OPEN = new ConcurrentHashMap<>()
+@Field static final ConcurrentHashMap<Long, Map> API_QUEUE = new ConcurrentHashMap<>()
+@Field static final java.util.concurrent.atomic.AtomicLong API_SEQ = new java.util.concurrent.atomic.AtomicLong()
 // Govee's scene library per model (sku -> [p: paramId -> [code, param], s: sceneId -> ...]),
 // for running scenes over the LAN. Kept in memory only: fetched again after a
 // reboot or code save, the first time a lamp of that model is seen on the LAN.
@@ -1508,22 +1516,75 @@ void apiStateResp(resp, Map data) {
 }
 
 private void apiRequest(String method, String path, Map body, String callback, Map cbData = [:]) {
-    Map params = [uri: OPENAPI + path, headers: ["Govee-API-Key": apiKey(), "Accept": "application/json"],
-                  timeout: TIMEOUT, contentType: "application/json", textParser: true]
-    // Which key it went with: a late answer for an old key says nothing about the new one.
-    cbData = cbData + [keyHash: apiKey()?.hashCode()]
-    if (body != null) {
-        params.requestContentType = "application/json"
-        params.body = JsonOutput.toJson(body)
+    Map req = [method: method, path: path, body: body, callback: callback, cbData: cbData]
+    if (apiOpen().size() < API_MAX_OPEN) {
+        apiSend(req)
+        return
     }
-    logDebug "${method} ${path}"
-    if (method == "POST") asynchttpPost(callback, params, cbData)
-    else asynchttpGet(callback, params, cbData)
+    boolean command = path == "/device/control"
+    Map queue = apiQueue()[command ? "commands" : "reads"]
+    // A read already waiting for the same device would bring the same answer.
+    if (!command && queue.values().any { it.path == path && it.cbData?.id == cbData?.id && it.cbData?.kind == cbData?.kind }) return
+    queue.put(API_SEQ.incrementAndGet(), req)
+    logDebug "${method} ${path} waits its turn (${queue.size()} waiting)"
+}
+
+private void apiSend(Map req) {
+    Map params = [uri: OPENAPI + req.path, headers: ["Govee-API-Key": apiKey(), "Accept": "application/json"],
+                  timeout: TIMEOUT, contentType: "application/json", textParser: true]
+    String n = API_SEQ.incrementAndGet().toString()
+    apiOpen().put(n, now())
+    // Which key it went with: a late answer for an old key says nothing about the new one.
+    Map cbData = (req.cbData ?: [:]) + [keyHash: apiKey()?.hashCode(), apiReq: n, path: req.path]
+    if (req.body != null) {
+        params.requestContentType = "application/json"
+        params.body = JsonOutput.toJson(req.body)
+    }
+    logDebug "${req.method} ${req.path}"
+    if (req.method == "POST") asynchttpPost(req.callback as String, params, cbData)
+    else asynchttpGet(req.callback as String, params, cbData)
+}
+
+/** The requests awaiting an answer: request number -> when sent. */
+private Map apiOpen() {
+    Long key = app.id as Long
+    API_OPEN.putIfAbsent(key, new ConcurrentHashMap())
+    Map open = API_OPEN[key]
+    // Hubitat answers a timeout too, but not across a reboot or code save: stop counting those.
+    long stale = now() - (TIMEOUT + 10) * 1000L
+    open.findAll { it.value < stale }.each { open.remove(it.key) }
+    return open
+}
+
+/** Waiting requests by kind, each keyed by a number that rises with time. */
+private Map apiQueue() {
+    Long key = app.id as Long
+    API_QUEUE.putIfAbsent(key, [commands: new ConcurrentHashMap(), reads: new ConcurrentHashMap()])
+    return API_QUEUE[key]
+}
+
+/** An answer arrived: send what's waiting, commands first. */
+private void apiAnswered(Map data) {
+    if (data?.apiReq) apiOpen().remove(data.apiReq)
+    Map q = apiQueue()
+    while (apiOpen().size() < API_MAX_OPEN) {
+        Map from = q.commands ? q.commands : q.reads
+        if (!from) return
+        // Concurrent answers may reach for the same one: whoever removes it sends it.
+        Map next = from.remove(from.keySet().min())
+        if (next) apiSend(next)
+    }
 }
 
 private Map apiJson(resp, Map data) {
+    apiAnswered(data)
     noteRateLimits(resp)
-    Map json = parseJson(bodyOf(resp))
+    String body = bodyOf(resp)
+    // State reads and commands are short; scene lists aren't worth the log space.
+    if (data?.path in ["/device/state", "/device/control"]) {
+        logDebug "${deviceById(data.id as String)?.displayName ?: data.id}: ${data.path} answered HTTP ${statusOf(resp)}: ${body.take(600)}"
+    }
+    Map json = parseJson(body)
     boolean keyNow = data?.keyHash == apiKey()?.hashCode()
     if (statusOf(resp) == 429) noteRateLimited()
     boolean rejected = statusOf(resp) == 401 || json?.code == 401

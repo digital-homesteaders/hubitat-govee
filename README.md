@@ -197,6 +197,14 @@ Not yet tried on the hub:
       it back in; the connection comes back within a few minutes without a Reconnect press
       (the watchdog now runs from the first attempt). Pressing Done while connected no longer
       logs a drop a few seconds later.
+- [ ] API queue (unreleased, after 0.4.7): no more "app has N pending asynchronous HTTP requests"
+      warnings on the hour or after Look for new devices; commands still go straight away
+      while a poll is running
+- [ ] Offline devices: with debug logging on, unplug a light's Wi-Fi (or catch one the Govee
+      app shows with a red Wi-Fi icon), press Refresh, and save the `/device/state answered`
+      and `/device/control answered` lines. 2026-10-28: the H6095 was off Wi-Fi (Bluetooth
+      only in the Govee app) yet `healthStatus` said online and on/off did nothing; we need
+      Govee's reply to mark it offline
 - [x] HPM: Install → From a URL with the manifest link installs the app and three drivers
       (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
 - [ ] HPM: a new release shows up under Update (0.4.5 is the first to try)

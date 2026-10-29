@@ -37,6 +37,9 @@ Map bodyOf(List call) { new JsonSlurper().parseText(call[2].body) }
 List published(int from = 0) { hub.scripts.collectMany { it.callsNamed("mqtt.publish") }.drop(from) }
 int pubCount() { published().size() }
 
+// The fake hub never answers HTTP itself: requests a check leaves open mustn't hold up the next.
+Check.before = { app.class.API_OPEN.clear(); app.class.API_QUEUE.clear() }
+
 void mqtt(Map msg) {
     conn().parse(JsonOutput.toJson([topic: ACCOUNT_TOPIC, payload: JsonOutput.toJson(msg)]))
     hub.settle()
@@ -694,6 +697,28 @@ check("polling reads fans and quiet devices, not lights that report over MQTT") 
     app.pollQuiet()
     ids = app.callsNamed("asynchttpPost").drop(posts).collect { bodyOf(it).payload.device }
     assert ids as Set == [FAN, LAMP] as Set
+}
+
+check("API requests wait their turn, commands first, so Hubitat isn't left with a pile pending") {
+    app.class.API_OPEN.clear(); app.class.API_QUEUE.clear()
+    int posts = app.callsNamed("asynchttpPost").size()
+    List ids = (1..6).collect { "AA:BB:CC:00:00:0${it}".toString() }
+    ids.each { app.apiRequest("POST", "/device/state", [payload: [device: it]], "apiStateResp", [id: it]) }
+    app.apiRequest("POST", "/device/state", [payload: [device: ids[5]]], "apiStateResp", [id: ids[5]])
+    List sent = app.callsNamed("asynchttpPost").drop(posts)
+    assert sent.size() == 4, "no more than four at once"
+    assert app.apiQueue().reads.size() == 2, "a read already waiting isn't queued twice"
+    app.apiRequest("POST", "/device/control", [payload: [device: LAMP]], "apiControlResp", [id: LAMP, instance: "powerSwitch"])
+    // An answer frees a slot: the command goes ahead of the reads.
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), sent[0][3])
+    assert app.callsNamed("asynchttpPost").last()[1] == "apiControlResp"
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: []]]), sent[1][3])
+    assert bodyOf(app.callsNamed("asynchttpPost").last()).payload.device == ids[4]
+    // An answer that never comes stops holding a slot.
+    hub.advance(60 * 1000L)
+    int before = app.callsNamed("asynchttpPost").size()
+    app.apiRequest("POST", "/device/state", [payload: [device: LAMP]], "apiStateResp", [id: LAMP])
+    assert app.callsNamed("asynchttpPost").size() == before + 1
 }
 
 check("with the live connection down, commands go straight to the API") {
