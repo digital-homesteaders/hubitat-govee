@@ -1,12 +1,12 @@
 {
   "packageName": "Govee Connect",
   "author": "Digital Homesteaders",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "minimumHEVersion": "2.3.0",
-  "dateReleased": "2026-10-23",
+  "dateReleased": "2026-10-28",
   "documentationLink": "https://github.com/digital-homesteaders/hubitat-govee#readme",
   "licenseFile": "https://raw.githubusercontent.com/digital-homesteaders/hubitat-govee/main/LICENSE",
-  "releaseNotes": "Since 0.4.6: the API key is trimmed, so a space or line break copied from Govee's email no longer gets it rejected, and a key that is only spaces counts as no key. A rejected key no longer floods the log: the app warns once, pauses API reads (polls, refreshes, scene lists) and API commands for an hour, and shows the problem under the API key on the app page. It tries again after the hour, straight away when the key changes or you press Done, and clears as soon as a request works; a late answer to a request sent with an old key no longer marks a new key as rejected. The live (MQTT) connection always releases the old client before reconnecting, and its retries are sturdier: it keeps retrying while the certificate is being refreshed, a leftover retry timer no longer drops a connection that just came up, and the watchdog restarts a reconnect that stalled. No reported values change.",
+  "releaseNotes": "Fixes and one change to reported values. CHANGED VALUE: healthStatus now follows the device itself. Any report from a light or fan (live connection or LAN) marks it online, and a LAN light that stops answering the LAN scans for about 16 minutes (while other lights still answer them) is marked offline. For LAN lights, Govee's cloud flag is ignored, since it said online for a light that was off Wi-Fi. Rules using healthStatus may now see offline. Platform API requests go four at a time, commands first, so Hubitat no longer warns of 9-14 pending requests during polls. Debug logging shows Govee's replies to state reads and commands. Live connection: reconnects after a reboot with no internet without a Reconnect press, and pressing Done no longer drops a healthy connection. A rejected API key warns once an hour even when Govee reports it inside an HTTP 200.",
   "apps": [
     {
       "id": "ec524747-7dfe-4397-8671-6b48a44510d5",

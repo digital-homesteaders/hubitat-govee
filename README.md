@@ -193,18 +193,20 @@ Not yet tried on the hub:
 - [ ] A bad key (0.4.7), an hour later: an API command (fan speed) is sent again, not skipped
 - [ ] Live connection (0.4.7): after a network drop it comes back by itself, with no Reconnect
       press; pressing Reconnect while it is retrying leaves it connected (not dropped minutes later)
-- [ ] Live connection (unreleased, after 0.4.7): reboot the hub with the internet unplugged, plug
+- [ ] Live connection (0.4.8): reboot the hub with the internet unplugged, plug
       it back in; the connection comes back within a few minutes without a Reconnect press
       (the watchdog now runs from the first attempt). Pressing Done while connected no longer
       logs a drop a few seconds later.
-- [ ] API queue (unreleased, after 0.4.7): no more "app has N pending asynchronous HTTP requests"
-      warnings on the hour or after Look for new devices; commands still go straight away
-      while a poll is running
-- [ ] Offline devices: with debug logging on, unplug a light's Wi-Fi (or catch one the Govee
-      app shows with a red Wi-Fi icon), press Refresh, and save the `/device/state answered`
-      and `/device/control answered` lines. 2026-10-28: the H6095 was off Wi-Fi (Bluetooth
-      only in the Govee app) yet `healthStatus` said online and on/off did nothing; we need
-      Govee's reply to mark it offline
+- [ ] API queue (0.4.8): no more "app has N pending asynchronous HTTP requests" warnings on
+      the hour or after Look for new devices; commands still go straight away while a poll runs
+- [ ] Health from the LAN (0.4.8): unplug a LAN light; about 15-20 minutes later it shows
+      `healthStatus` offline and the log says it stopped answering on the LAN. Plug it back in:
+      online again within 5 minutes. Other lights stay online throughout, and nothing goes
+      offline in the first 16 minutes after a reboot or Done.
+- [ ] Offline lights not on the LAN (H6072, H605B, H6052): with debug logging on, unplug one,
+      press Refresh, and save the `/device/state answered` line. 2026-10-28: the H6095 was off
+      Wi-Fi (Bluetooth only in the Govee app) yet the cloud said online; we need Govee's reply
+      to mark these offline
 - [x] HPM: Install → From a URL with the manifest link installs the app and three drivers
       (2026-10-21, 0.4.4: clean version line once old hand-pasted entries were sorted out)
 - [ ] HPM: a new release shows up under Update (0.4.5 is the first to try)

@@ -9,7 +9,7 @@
 
 import groovy.transform.Field
 
-@Field static final String DRIVER_VERSION = "0.4.7"
+@Field static final String DRIVER_VERSION = "0.4.8"
 // Must equal definition(name:); tests/PackageCheck.groovy checks it.
 @Field static final String DRIVER_NAME = "Govee Fan"
 
@@ -100,7 +100,8 @@ private void clearRefused() {
 
 
 void goveeUpdate(Map reported, String source) {
-    goveeSeen(source)
+    // No source: the app's own conclusion (offline), not something heard.
+    if (source) goveeSeen(source)
     merge(reported)
 }
 

@@ -48,7 +48,7 @@ preferences {
 // The interface version: bump it in every file when the calls between the app
 // and its drivers change, so a driver left at an older one is reported (it
 // would fail quietly otherwise). Changes inside one file don't bump it.
-@Field static final String VERSION = "0.4.7"
+@Field static final String VERSION = "0.4.8"
 @Field static final String APP2 = "https://app2.govee.com"
 @Field static final String OPENAPI = "https://openapi.api.govee.com/router/api/v1"
 // The Govee app version the sign-in must claim (as govee-homeassistant does).
@@ -75,6 +75,11 @@ preferences {
 @Field static final long IOT_RETRY_MS = 7 * 24 * 3600 * 1000L
 // A LAN address not heard from in a scan for this long isn't used.
 @Field static final long LAN_STALE_MS = 16 * 60 * 1000L
+// A device seen on the LAN that has missed scans for LAN_STALE_MS, with nothing over
+// MQTT either, is marked offline, but only while other devices still answer the scans
+// (so a broken scan says nothing) and not in the first LAN_STALE_MS after a start.
+// By app id: when watching began.
+@Field static final ConcurrentHashMap<Long, Long> LAN_WATCH_FROM = new ConcurrentHashMap<>()
 // LAN commands a device didn't confirm, in a row, before LAN is paused for it, and for how long.
 @Field static final int LAN_MISSES_OFF = 2
 @Field static final long LAN_OFF_MS = 3600 * 1000L
@@ -350,6 +355,7 @@ void initialize() {
     getConnection()?.connectMqtt()
     if (settings.lanEnable != false) getConnection()?.lanStart()
     else getConnection()?.lanStop()
+    LAN_WATCH_FROM[app.id as Long] = now()
     loadScenes()
     int minutes = ((settings.pollMinutes ?: "5") as int)
     schedule("0 */${minutes} * ? * *", "pollQuiet")
@@ -765,10 +771,8 @@ void iotMessage(Map msg) {
     String via = msg.via ?: "iot"
     noteIot(id, now())
     Map s = normalizeIot(msg.state instanceof Map ? msg.state : [:])
-    if (!s) {
-        cd.goveeSeen(via)
-        return
-    }
+    // A message from the device itself is proof it's online, whatever the cloud's flag says.
+    if (!s.containsKey("online")) s.online = true
     if (s.mode != null && cd.getDataValue("kind") == "light") s.putAll(sceneFromMode(id, s.mode, LAST_MODE.put(id, s.mode.toString())))
     cd.goveeUpdate(s, via)
     // Fans report only power over MQTT: read speed and mode once power changes.
@@ -1255,6 +1259,7 @@ void lanFound(String id, String ip, String sku) {
         log.info "Govee: ${cd.displayName} found on the LAN at ${ip}"
         cd.updateDataValue("lanIp", ip)
     }
+    if (cd.currentValue("healthStatus") != "online") cd.goveeUpdate([online: true], "lan")
     if (cd.getDataValue("kind") == "light" && "lightScene" in (capsOf(cd).instances ?: [])) ensureLibrary(cd.getDataValue("sku"))
 }
 
@@ -1394,6 +1399,36 @@ Map lanTargets() {
     return out
 }
 
+/** True when the LAN scans work and this device has answered them: its health comes from the LAN. */
+boolean lanWatching(String id) {
+    return settings.lanEnable != false && (state.lan ?: [:])[id] && lanScansWork()
+}
+
+/** Some device answered a LAN scan lately (they run every 5 minutes). */
+private boolean lanScansWork() {
+    long t = now()
+    return (state.lan ?: [:]).values().any { t - ((it.at ?: 0) as long) <= LAN_STALE_MS }
+}
+
+/** Mark offline the LAN devices that stopped answering scans and sent nothing over MQTT either. */
+void checkLan() {
+    if (settings.lanEnable == false || !lanScansWork()) return
+    long t = now()
+    Long from = LAN_WATCH_FROM.putIfAbsent(app.id as Long, t)
+    if (from == null || t - from < LAN_STALE_MS) return
+    Map lan = state.lan ?: [:]
+    getGoveeDevices().each { cd ->
+        String id = cd.getDataValue("id")
+        Map l = lan[id]
+        if (!l || t - ((l.at ?: 0) as long) <= LAN_STALE_MS) return
+        Long heard = LAST_IOT.get(id)
+        if (heard && t - heard <= LAN_STALE_MS) return
+        if (cd.currentValue("healthStatus") == "offline") return
+        log.info "Govee: ${cd.displayName} has stopped answering on the LAN; marking it offline"
+        cd.goveeUpdate([online: false], null)
+    }
+}
+
 /** True when commands for this device should go over the LAN. */
 boolean lanUsable(String id) {
     if (settings.lanEnable == false || !id) return false
@@ -1473,6 +1508,7 @@ void apiControlResp(resp, Map data) {
 
 /** Read the state of quiet devices: those with no MQTT message lately, and fans (MQTT gives only their power). */
 void pollQuiet() {
+    checkLan()
     if (!apiKey() || apiPaused()) return
     loadScenes()
     long cutoff = now() - QUIET_MS
@@ -1512,7 +1548,10 @@ void apiStateResp(resp, Map data) {
         logDebug "${cd.displayName}: state read failed (HTTP ${statusOf(resp)})"
         return
     }
-    cd.goveeUpdate(normalizeApi(caps), "api")
+    Map s = normalizeApi(caps)
+    // The cloud's flag has said online for a light that was off Wi-Fi: the LAN knows better.
+    if (lanWatching(data.id as String)) s.remove("online")
+    cd.goveeUpdate(s, "api")
 }
 
 private void apiRequest(String method, String path, Map body, String callback, Map cbData = [:]) {

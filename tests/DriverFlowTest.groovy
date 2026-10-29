@@ -699,6 +699,36 @@ check("polling reads fans and quiet devices, not lights that report over MQTT") 
     assert ids as Set == [FAN, LAMP] as Set
 }
 
+check("health: a LAN light that stops answering scans goes offline; any word from it brings it back") {
+    Map lanBefore = app.state.lan
+    Long id = app.app.id as Long
+    long t = hub.scripts[0].now()
+    long old = t - 20 * 60 * 1000L
+    mqtt([msg: [sku: "H6052", device: LAMP, cmd: "status", state: [onOff: 1]]])
+    assert lamp().currentValue("healthStatus") == "online", "a report from the light itself means online"
+    String transport = lamp().currentValue("transport")
+    app.class.LAST_IOT.remove(LAMP)
+    app.state.lan = [(LAMP): [ip: "192.168.1.50", at: old], other: [ip: "192.168.1.51", at: t]]
+    app.class.LAN_WATCH_FROM[id] = t
+    app.checkLan()
+    assert lamp().currentValue("healthStatus") == "online", "not judged in the first minutes after a start"
+    app.class.LAN_WATCH_FROM[id] = old
+    app.state.lan.other.at = old
+    app.checkLan()
+    assert lamp().currentValue("healthStatus") == "online", "no device answers the scans: they say nothing"
+    app.state.lan.other.at = t
+    app.checkLan()
+    hub.settle()
+    assert lamp().currentValue("healthStatus") == "offline" && lamp().currentValue("transport") == transport
+    assert app.log.lines.any { it[1].contains("stopped answering on the LAN") }
+    app.apiStateResp(resp(200, [code: 200, payload: [capabilities: [[instance: "online", state: [value: true]]]]]), [id: LAMP])
+    assert lamp().currentValue("healthStatus") == "offline", "the cloud's flag doesn't count for a light the LAN watches"
+    conn().parse(lanEvent("192.168.1.50", [cmd: "scan", data: [ip: "192.168.1.50", device: LAMP, sku: "H6052"]]))
+    hub.settle()
+    assert lamp().currentValue("healthStatus") == "online", "a scan answer brings it back"
+    app.state.lan = lanBefore
+}
+
 check("API requests wait their turn, commands first, so Hubitat isn't left with a pile pending") {
     app.class.API_OPEN.clear(); app.class.API_QUEUE.clear()
     int posts = app.callsNamed("asynchttpPost").size()
